@@ -41,3 +41,6 @@ yarn-error.log*
 next-env.d.ts
 
 /src/generated/prisma
+
+# database dump (contains personal financial data)
+prisma/db-dump.json
