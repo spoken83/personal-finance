@@ -1,32 +1,71 @@
 "use client";
 
 import { signIn } from "next-auth/react";
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
 export default function LoginPage() {
-  const [username, setUsername] = useState("");
-  const [password, setPassword] = useState("");
+  const [digits, setDigits] = useState(["", "", "", "", "", ""]);
   const [error, setError] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const inputRefs = useRef<(HTMLInputElement | null)[]>([]);
   const router = useRouter();
 
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
+  async function submit(passcode: string) {
     setError("");
+    setSubmitting(true);
     const result = await signIn("credentials", {
-      username,
-      password,
+      passcode,
       redirect: false,
     });
+    setSubmitting(false);
     if (result?.error) {
-      setError("Invalid credentials");
+      setError("Invalid passcode");
+      setDigits(["", "", "", "", "", ""]);
+      inputRefs.current[0]?.focus();
     } else {
       router.push("/");
       router.refresh();
+    }
+  }
+
+  function handleChange(index: number, value: string) {
+    if (!/^\d*$/.test(value)) return;
+    const digit = value.slice(-1);
+    const next = [...digits];
+    next[index] = digit;
+    setDigits(next);
+
+    if (digit && index < 5) {
+      inputRefs.current[index + 1]?.focus();
+    }
+
+    if (digit && index === 5) {
+      const passcode = next.join("");
+      if (passcode.length === 6) submit(passcode);
+    }
+  }
+
+  function handleKeyDown(index: number, e: React.KeyboardEvent) {
+    if (e.key === "Backspace" && !digits[index] && index > 0) {
+      inputRefs.current[index - 1]?.focus();
+    }
+  }
+
+  function handlePaste(e: React.ClipboardEvent) {
+    e.preventDefault();
+    const pasted = e.clipboardData.getData("text").replace(/\D/g, "").slice(0, 6);
+    if (!pasted) return;
+    const next = ["", "", "", "", "", ""];
+    for (let i = 0; i < pasted.length; i++) next[i] = pasted[i];
+    setDigits(next);
+    if (pasted.length === 6) {
+      submit(pasted);
+    } else {
+      inputRefs.current[pasted.length]?.focus();
     }
   }
 
@@ -35,33 +74,28 @@ export default function LoginPage() {
       <Card className="w-full max-w-sm">
         <CardHeader>
           <CardTitle className="text-center text-2xl">Finance Tracker</CardTitle>
+          <p className="text-center text-sm text-gray-500">Enter your 6-digit passcode</p>
         </CardHeader>
         <CardContent>
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="username">Username</Label>
+          <div className="flex justify-center gap-2" onPaste={handlePaste}>
+            {digits.map((digit, i) => (
               <Input
-                id="username"
-                value={username}
-                onChange={(e) => setUsername(e.target.value)}
-                required
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="password">Password</Label>
-              <Input
-                id="password"
+                key={i}
+                ref={(el) => { inputRefs.current[i] = el; }}
                 type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                required
+                inputMode="numeric"
+                maxLength={1}
+                value={digit}
+                onChange={(e) => handleChange(i, e.target.value)}
+                onKeyDown={(e) => handleKeyDown(i, e)}
+                disabled={submitting}
+                className="w-12 h-14 text-center text-2xl font-mono"
+                autoFocus={i === 0}
               />
-            </div>
-            {error && <p className="text-sm text-red-600">{error}</p>}
-            <Button type="submit" className="w-full">
-              Sign In
-            </Button>
-          </form>
+            ))}
+          </div>
+          {error && <p className="text-sm text-red-600 text-center mt-3">{error}</p>}
+          {submitting && <p className="text-sm text-gray-500 text-center mt-3">Verifying...</p>}
         </CardContent>
       </Card>
     </div>

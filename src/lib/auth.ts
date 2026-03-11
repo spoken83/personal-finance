@@ -4,16 +4,12 @@ import CredentialsProvider from "next-auth/providers/credentials";
 export const authOptions: NextAuthOptions = {
   providers: [
     CredentialsProvider({
-      name: "Credentials",
+      name: "Passcode",
       credentials: {
-        username: { label: "Username", type: "text" },
-        password: { label: "Password", type: "password" },
+        passcode: { label: "Passcode", type: "password" },
       },
       async authorize(credentials) {
-        if (
-          credentials?.username === process.env.AUTH_USERNAME &&
-          credentials?.password === process.env.AUTH_PASSWORD
-        ) {
+        if (credentials?.passcode === (process.env.AUTH_PASSCODE || "121314")) {
           return { id: "1", name: "Admin" };
         }
         return null;
