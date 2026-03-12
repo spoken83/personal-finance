@@ -286,7 +286,7 @@ export async function POST(request: NextRequest) {
         continue;
       }
 
-      const amountFcy = (tx.amount_fcy != null && tx.amount_fcy !== "" && tx.amount_fcy !== undefined) ? String(tx.amount_fcy) : null;
+      const amountFcy = (tx.amount_fcy != null && String(tx.amount_fcy) !== "" && tx.amount_fcy !== undefined) ? String(tx.amount_fcy) : null;
       const fcyCurrency = (tx.fcy_currency && tx.fcy_currency.trim() !== "") ? tx.fcy_currency : null;
       const [transaction] = await db
         .insert(transactions)

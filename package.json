@@ -10,12 +10,16 @@
     "seed": "npx tsx src/scripts/seed.ts",
     "db:push": "npx drizzle-kit push",
     "db:studio": "npx drizzle-kit studio",
-    "db:generate": "npx drizzle-kit generate"
+    "db:generate": "npx drizzle-kit generate",
+    "cf:build": "npx opennextjs-cloudflare build",
+    "cf:deploy": "npx opennextjs-cloudflare build && npx opennextjs-cloudflare deploy",
+    "cf:preview": "npx opennextjs-cloudflare build && npx wrangler dev"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.78.0",
     "@base-ui/react": "^1.2.0",
     "@neondatabase/serverless": "^1.0.2",
+    "@opennextjs/cloudflare": "^1.17.1",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "cmdk": "^1.1.1",
