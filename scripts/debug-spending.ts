@@ -1,15 +1,22 @@
 import "dotenv/config";
-import { PrismaPg } from "@prisma/adapter-pg";
-import { PrismaClient } from "../src/generated/prisma/client.js";
+import { neon } from "@neondatabase/serverless";
+import { drizzle } from "drizzle-orm/neon-http";
+import { gte, lt, inArray } from "drizzle-orm";
+import * as schema from "../src/lib/schema";
 
-const adapter = new PrismaPg({ connectionString: process.env.DATABASE_URL });
-const prisma = new PrismaClient({ adapter });
+const sql = neon(process.env.DATABASE_URL!);
+const db = drizzle(sql, { schema });
 
 async function main() {
   // Total ChiangMai Trip + Harbin Travel
-  const trips = await prisma.transaction.findMany({
-    where: { spendCategory: { name: { in: ["ChiangMai Trip", "Harbin Travel"] } } },
-    select: { date: true, accountingAmt: true, spendCategory: { select: { name: true } } },
+  const trips = await db.query.transactions.findMany({
+    where: inArray(schema.transactions.spendCategoryId,
+      (await db.query.spendCategories.findMany({
+        where: inArray(schema.spendCategories.name, ["ChiangMai Trip", "Harbin Travel"]),
+      })).map(sc => sc.id)
+    ),
+    columns: { date: true, accountingAmt: true },
+    with: { spendCategory: { columns: { name: true } } },
   });
   const cmTotal = trips.filter(t => t.spendCategory.name === "ChiangMai Trip").reduce((s, t) => s + Number(t.accountingAmt), 0);
   const htTotal = trips.filter(t => t.spendCategory.name === "Harbin Travel").reduce((s, t) => s + Number(t.accountingAmt), 0);
@@ -18,14 +25,16 @@ async function main() {
 
   // App spending Jul-Dec by master category
   const excludeFromSpending = ["Money In", "Investment", "Repayment(exclude)", "Internal Trf(exclude)"];
-  const txs = await prisma.transaction.findMany({
-    where: { date: { gte: new Date("2025-07-01"), lt: new Date("2026-01-01") } },
-    include: { masterCategory: true },
+  const txs = await db.query.transactions.findMany({
+    where: gte(schema.transactions.date, new Date("2025-07-01")),
+    with: { masterCategory: true },
   });
+  // Filter for < 2026-01-01 in JS since we used gte above
+  const filteredTxs = txs.filter(t => new Date(t.date) < new Date("2026-01-01"));
 
   const byMaster: Record<string, number> = {};
   let totalSpending = 0;
-  for (const t of txs) {
+  for (const t of filteredTxs) {
     const cat = t.masterCategory.name;
     const amt = Number(t.accountingAmt);
     if (excludeFromSpending.indexOf(cat) === -1) {
@@ -51,7 +60,7 @@ async function main() {
   console.log("\n=== Fixed Payment per month ===");
   for (let m = 7; m <= 12; m++) {
     const month = `2025-${String(m).padStart(2, "0")}`;
-    const monthTxs = txs.filter(t => {
+    const monthTxs = filteredTxs.filter(t => {
       const d = new Date(t.date);
       return d.getFullYear() === 2025 && d.getMonth() + 1 === m && t.masterCategory.name === "Fixed Payment";
     });

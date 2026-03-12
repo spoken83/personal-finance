@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/db";
+import { db } from "@/lib/db";
+import { statementUploads, transactions } from "@/lib/schema";
+import { eq, asc } from "drizzle-orm";
 
 export async function GET(
   _request: NextRequest,
@@ -8,27 +10,27 @@ export async function GET(
   const { id } = await params;
   const uploadId = parseInt(id);
 
-  const upload = await prisma.statementUpload.findUnique({
-    where: { id: uploadId },
-    include: { bankAccount: true },
+  const upload = await db.query.statementUploads.findFirst({
+    where: eq(statementUploads.id, uploadId),
+    with: { bankAccount: true },
   });
 
   if (!upload) {
     return NextResponse.json({ error: "Upload not found" }, { status: 404 });
   }
 
-  const transactions = await prisma.transaction.findMany({
-    where: { statementUploadId: uploadId },
-    include: {
+  const txList = await db.query.transactions.findMany({
+    where: eq(transactions.statementUploadId, uploadId),
+    with: {
       bankAccount: true,
       spendCategory: true,
       masterCategory: true,
     },
-    orderBy: { date: "asc" },
+    orderBy: [asc(transactions.date)],
   });
 
   return NextResponse.json({
     upload,
-    transactions,
+    transactions: txList,
   });
 }

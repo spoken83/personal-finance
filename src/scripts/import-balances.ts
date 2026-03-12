@@ -1,9 +1,10 @@
 import "dotenv/config";
-import { PrismaClient } from "../src/generated/prisma/client.js";
-import { PrismaPg } from "@prisma/adapter-pg";
+import { neon } from "@neondatabase/serverless";
+import { drizzle } from "drizzle-orm/neon-http";
+import * as schema from "../lib/schema";
 
-const adapter = new PrismaPg({ connectionString: process.env.DATABASE_URL! });
-const prisma = new PrismaClient({ adapter });
+const sql = neon(process.env.DATABASE_URL!);
+const db = drizzle(sql, { schema });
 
 // Data from the Financial Health Check sheet in Excel
 const bankBalanceData: Record<string, Record<string, number>> = {
@@ -89,12 +90,12 @@ const investmentData: Record<string, Record<string, number>> = {
 
 async function main() {
   // Get bank accounts
-  const bankAccounts = await prisma.bankAccount.findMany();
-  const baMap = new Map(bankAccounts.map((ba) => [ba.accountName, ba.id]));
+  const bankAccountsList = await db.query.bankAccounts.findMany();
+  const baMap = new Map(bankAccountsList.map((ba) => [ba.accountName, ba.id]));
 
   // Get investment accounts
-  const investmentAccounts = await prisma.investmentAccount.findMany();
-  const iaMap = new Map(investmentAccounts.map((ia) => [ia.name, ia.id]));
+  const investmentAccountsList = await db.query.investmentAccounts.findMany();
+  const iaMap = new Map(investmentAccountsList.map((ia) => [ia.name, ia.id]));
 
   console.log("Importing bank balances...");
   for (const [month, accounts] of Object.entries(bankBalanceData)) {
@@ -104,20 +105,17 @@ async function main() {
         console.warn(`Bank account not found: ${accountName}`);
         continue;
       }
-      await prisma.accountBalance.upsert({
-        where: {
-          bankAccountId_month: {
-            bankAccountId,
-            month: new Date(month + "-01"),
-          },
-        },
-        update: { actualBalance: balance },
-        create: {
+      await db
+        .insert(schema.accountBalances)
+        .values({
           bankAccountId,
           month: new Date(month + "-01"),
-          actualBalance: balance,
-        },
-      });
+          actualBalance: String(balance),
+        })
+        .onConflictDoUpdate({
+          target: [schema.accountBalances.bankAccountId, schema.accountBalances.month],
+          set: { actualBalance: String(balance) },
+        });
     }
   }
 
@@ -129,22 +127,19 @@ async function main() {
         console.warn(`Investment account not found: ${accountName}`);
         continue;
       }
-      await prisma.investmentSnapshot.upsert({
-        where: {
-          investmentAccountId_month: {
-            investmentAccountId,
-            month: new Date(month + "-01"),
-          },
-        },
-        update: { balance },
-        create: {
+      await db
+        .insert(schema.investmentSnapshots)
+        .values({
           investmentAccountId,
           month: new Date(month + "-01"),
-          balance,
-          contributions: 0,
-          withdrawals: 0,
-        },
-      });
+          balance: String(balance),
+          contributions: "0",
+          withdrawals: "0",
+        })
+        .onConflictDoUpdate({
+          target: [schema.investmentSnapshots.investmentAccountId, schema.investmentSnapshots.month],
+          set: { balance: String(balance) },
+        });
     }
   }
 
@@ -155,7 +150,4 @@ main()
   .catch((e) => {
     console.error(e);
     process.exit(1);
-  })
-  .finally(async () => {
-    await prisma.$disconnect();
   });

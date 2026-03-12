@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/db";
+import { db } from "@/lib/db";
+import { statementUploads, transactions } from "@/lib/schema";
+import { eq } from "drizzle-orm";
 
 export async function POST(
   request: NextRequest,
@@ -19,27 +21,27 @@ export async function POST(
       if (tx.accountingAmt !== undefined) data.accountingAmt = tx.accountingAmt;
       if (tx.amountFcy !== undefined) data.amountFcy = tx.amountFcy;
       if (tx.delete) {
-        await prisma.transaction.delete({ where: { id: tx.id } });
+        await db.delete(transactions).where(eq(transactions.id, tx.id));
         continue;
       }
-      await prisma.transaction.update({
-        where: { id: tx.id },
-        data,
-      });
+      await db
+        .update(transactions)
+        .set(data)
+        .where(eq(transactions.id, tx.id));
     }
   } else {
     // Confirm all transactions for this upload
-    await prisma.transaction.updateMany({
-      where: { statementUploadId: uploadId },
-      data: { isConfirmed: true },
-    });
+    await db
+      .update(transactions)
+      .set({ isConfirmed: true })
+      .where(eq(transactions.statementUploadId, uploadId));
   }
 
   // Update upload status
-  await prisma.statementUpload.update({
-    where: { id: uploadId },
-    data: { status: "confirmed", confirmedAt: new Date() },
-  });
+  await db
+    .update(statementUploads)
+    .set({ status: "confirmed", confirmedAt: new Date() })
+    .where(eq(statementUploads.id, uploadId));
 
   return NextResponse.json({ success: true });
 }

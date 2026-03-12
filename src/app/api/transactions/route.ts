@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/db";
+import { db } from "@/lib/db";
+import { transactions } from "@/lib/schema";
+import { eq, and, ilike, gte, lte, inArray, desc, count, sql } from "drizzle-orm";
 
 export async function PATCH(request: NextRequest) {
   const { ids, spendCategoryId, masterCategoryId } = await request.json();
@@ -14,12 +16,12 @@ export async function PATCH(request: NextRequest) {
     );
   }
 
-  const result = await prisma.transaction.updateMany({
-    where: { id: { in: ids } },
-    data: { spendCategoryId, masterCategoryId },
-  });
+  const result = await db
+    .update(transactions)
+    .set({ spendCategoryId, masterCategoryId })
+    .where(inArray(transactions.id, ids));
 
-  return NextResponse.json({ updated: result.count });
+  return NextResponse.json({ updated: result.rowCount });
 }
 
 export async function GET(request: NextRequest) {
@@ -33,45 +35,46 @@ export async function GET(request: NextRequest) {
   const dateFrom = searchParams.get("dateFrom");
   const dateTo = searchParams.get("dateTo");
 
-  const where: Record<string, unknown> = {
-    isAmortized: false, // Hide amortized parents; their children show instead
-  };
+  const conditions = [eq(transactions.isAmortized, false)];
 
   if (search) {
-    where.description = { contains: search, mode: "insensitive" };
+    conditions.push(ilike(transactions.description, `%${search}%`));
   }
   if (bankAccountId) {
-    where.bankAccountId = parseInt(bankAccountId);
+    conditions.push(eq(transactions.bankAccountId, parseInt(bankAccountId)));
   }
   if (masterCategoryId) {
-    where.masterCategoryId = parseInt(masterCategoryId);
+    conditions.push(eq(transactions.masterCategoryId, parseInt(masterCategoryId)));
   }
   if (spendCategoryId) {
-    where.spendCategoryId = parseInt(spendCategoryId);
+    conditions.push(eq(transactions.spendCategoryId, parseInt(spendCategoryId)));
   }
-  if (dateFrom || dateTo) {
-    where.date = {};
-    if (dateFrom) (where.date as Record<string, unknown>).gte = new Date(dateFrom);
-    if (dateTo) (where.date as Record<string, unknown>).lte = new Date(dateTo);
+  if (dateFrom) {
+    conditions.push(gte(transactions.date, new Date(dateFrom)));
+  }
+  if (dateTo) {
+    conditions.push(lte(transactions.date, new Date(dateTo)));
   }
 
-  const [transactions, total] = await Promise.all([
-    prisma.transaction.findMany({
+  const where = and(...conditions);
+
+  const [txList, [{ total }]] = await Promise.all([
+    db.query.transactions.findMany({
       where,
-      include: {
+      with: {
         bankAccount: true,
         spendCategory: true,
         masterCategory: true,
       },
-      orderBy: { date: "desc" },
-      skip: (page - 1) * limit,
-      take: limit,
+      orderBy: [desc(transactions.date)],
+      offset: (page - 1) * limit,
+      limit,
     }),
-    prisma.transaction.count({ where }),
+    db.select({ total: count() }).from(transactions).where(where),
   ]);
 
   return NextResponse.json({
-    transactions,
+    transactions: txList,
     total,
     page,
     totalPages: Math.ceil(total / limit),

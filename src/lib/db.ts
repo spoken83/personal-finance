@@ -1,15 +1,16 @@
-import { PrismaClient } from "@/generated/prisma/client";
-import { PrismaPg } from "@prisma/adapter-pg";
+import { neon } from "@neondatabase/serverless";
+import { drizzle } from "drizzle-orm/neon-http";
+import * as schema from "./schema";
 
-const globalForPrisma = globalThis as unknown as {
-  prisma: PrismaClient | undefined;
+const globalForDrizzle = globalThis as unknown as {
+  db: ReturnType<typeof createDrizzleClient> | undefined;
 };
 
-function createPrismaClient() {
-  const adapter = new PrismaPg({ connectionString: process.env.DATABASE_URL! });
-  return new PrismaClient({ adapter });
+function createDrizzleClient() {
+  const sql = neon(process.env.DATABASE_URL!);
+  return drizzle(sql, { schema });
 }
 
-export const prisma = globalForPrisma.prisma ?? createPrismaClient();
+export const db = globalForDrizzle.db ?? createDrizzleClient();
 
-if (process.env.NODE_ENV !== "production") globalForPrisma.prisma = prisma;
+if (process.env.NODE_ENV !== "production") globalForDrizzle.db = db;

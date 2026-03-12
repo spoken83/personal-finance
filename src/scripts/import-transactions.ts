@@ -1,10 +1,12 @@
 import "dotenv/config";
-import { PrismaClient } from "../src/generated/prisma/client.js";
-import { PrismaPg } from "@prisma/adapter-pg";
+import { neon } from "@neondatabase/serverless";
+import { drizzle } from "drizzle-orm/neon-http";
+import { eq } from "drizzle-orm";
 import * as XLSX from "xlsx";
+import * as schema from "../lib/schema";
 
-const adapter = new PrismaPg({ connectionString: process.env.DATABASE_URL! });
-const prisma = new PrismaClient({ adapter });
+const sql = neon(process.env.DATABASE_URL!);
+const db = drizzle(sql, { schema });
 
 const EXCEL_PATH =
   "/Users/froisagent/Library/CloudStorage/GoogleDrive-froisagent@gmail.com/My Drive/Finanace/Finance_Tracker(shared).xlsx";
@@ -19,7 +21,6 @@ function normalizeBankAccount(
 
   if (!s) return null;
 
-  // Map various source names to standardized bank account names
   if (s === "CITIBANK" || s === "Citibank" || s === "Citi") {
     if (a?.includes("PremierMiles") || a?.includes("Prem")) {
       return { source: "Citibank", accountName: "Citi PremierMiles" };
@@ -79,17 +80,17 @@ async function main() {
   console.log(`Found ${rows.length} rows in Data sheet`);
 
   // Load lookup maps from DB
-  const bankAccounts = await prisma.bankAccount.findMany();
-  const spendCategories = await prisma.spendCategory.findMany({
-    include: { masterCategory: true },
+  const bankAccountsList = await db.query.bankAccounts.findMany();
+  const spendCategoriesList = await db.query.spendCategories.findMany({
+    with: { masterCategory: true },
   });
-  const masterCategories = await prisma.masterCategory.findMany();
+  const masterCategoriesList = await db.query.masterCategories.findMany();
 
   const baMap = new Map(
-    bankAccounts.map((ba) => [`${ba.source}|${ba.accountName}`, ba.id])
+    bankAccountsList.map((ba) => [`${ba.source}|${ba.accountName}`, ba.id])
   );
-  const scMap = new Map(spendCategories.map((sc) => [sc.name, sc]));
-  const mcMap = new Map(masterCategories.map((mc) => [mc.name, mc.id]));
+  const scMap = new Map(spendCategoriesList.map((sc) => [sc.name, sc]));
+  const mcMap = new Map(masterCategoriesList.map((mc) => [mc.name, mc.id]));
 
   let imported = 0;
   let skipped = 0;
@@ -115,8 +116,6 @@ async function main() {
     // Parse date
     let date: Date;
     if (typeof dateVal === "number") {
-      // Excel serial date
-      date = XLSX.SSF.parse_date_code(dateVal) as unknown as Date;
       const parsed = XLSX.SSF.parse_date_code(dateVal);
       date = new Date(parsed.y, parsed.m - 1, parsed.d);
     } else if (typeof dateVal === "string") {
@@ -154,12 +153,13 @@ async function main() {
       // Try to create the category if we have a master category
       const mcId = mcMap.get(masterCatName);
       if (mcId && spendCatName) {
-        const created = await prisma.spendCategory.create({
-          data: { name: spendCatName, masterCategoryId: mcId },
-        });
-        const full = await prisma.spendCategory.findUnique({
-          where: { id: created.id },
-          include: { masterCategory: true },
+        const [created] = await db
+          .insert(schema.spendCategories)
+          .values({ name: spendCatName, masterCategoryId: mcId })
+          .returning();
+        const full = await db.query.spendCategories.findFirst({
+          where: eq(schema.spendCategories.id, created.id),
+          with: { masterCategory: true },
         });
         if (full) {
           scMap.set(spendCatName, full);
@@ -189,18 +189,16 @@ async function main() {
       : null;
 
     try {
-      await prisma.transaction.create({
-        data: {
-          bankAccountId,
-          date,
-          description,
-          amountFcy: fcy && !isNaN(fcy) ? fcy : null,
-          fcyCurrency: fcyCurrency ? String(fcyCurrency).trim() || null : null,
-          accountingAmt: amt,
-          spendCategoryId: sc.id,
-          masterCategoryId,
-          isConfirmed: true,
-        },
+      await db.insert(schema.transactions).values({
+        bankAccountId,
+        date,
+        description,
+        amountFcy: fcy && !isNaN(fcy) ? String(fcy) : null,
+        fcyCurrency: fcyCurrency ? String(fcyCurrency).trim() || null : null,
+        accountingAmt: String(amt),
+        spendCategoryId: sc.id,
+        masterCategoryId,
+        isConfirmed: true,
       });
       imported++;
     } catch (e) {
@@ -222,7 +220,4 @@ main()
   .catch((e) => {
     console.error(e);
     process.exit(1);
-  })
-  .finally(async () => {
-    await prisma.$disconnect();
   });

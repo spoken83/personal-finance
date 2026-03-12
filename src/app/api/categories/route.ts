@@ -1,17 +1,22 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/db";
+import { db } from "@/lib/db";
+import { masterCategories, spendCategories, bankAccounts } from "@/lib/schema";
+import { eq, asc, sql } from "drizzle-orm";
 
 export async function GET() {
-  const [masterCategories, spendCategories, bankAccounts] = await Promise.all([
-    prisma.masterCategory.findMany({ orderBy: { displayOrder: "asc" } }),
-    prisma.spendCategory.findMany({
-      include: { masterCategory: true },
-      orderBy: { name: "asc" },
+  const [masterCats, spendCats, bankAccts] = await Promise.all([
+    db.query.masterCategories.findMany({ orderBy: [asc(masterCategories.displayOrder)] }),
+    db.query.spendCategories.findMany({
+      with: { masterCategory: true },
+      orderBy: [asc(spendCategories.name)],
     }),
-    prisma.bankAccount.findMany({ where: { isActive: true }, orderBy: { source: "asc" } }),
+    db.query.bankAccounts.findMany({
+      where: eq(bankAccounts.isActive, true),
+      orderBy: [asc(bankAccounts.source)],
+    }),
   ]);
 
-  return NextResponse.json({ masterCategories, spendCategories, bankAccounts });
+  return NextResponse.json({ masterCategories: masterCats, spendCategories: spendCats, bankAccounts: bankAccts });
 }
 
 export async function POST(request: NextRequest) {
@@ -24,9 +29,9 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  // Check for duplicate name
-  const existing = await prisma.spendCategory.findFirst({
-    where: { name: { equals: name, mode: "insensitive" } },
+  // Check for duplicate name (case-insensitive)
+  const existing = await db.query.spendCategories.findFirst({
+    where: sql`lower(${spendCategories.name}) = lower(${name})`,
   });
   if (existing) {
     return NextResponse.json(
@@ -35,10 +40,15 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const category = await prisma.spendCategory.create({
-    data: { name: name.trim(), masterCategoryId },
-    include: { masterCategory: true },
+  const [category] = await db
+    .insert(spendCategories)
+    .values({ name: name.trim(), masterCategoryId })
+    .returning();
+
+  const categoryWithRelation = await db.query.spendCategories.findFirst({
+    where: eq(spendCategories.id, category.id),
+    with: { masterCategory: true },
   });
 
-  return NextResponse.json(category, { status: 201 });
+  return NextResponse.json(categoryWithRelation, { status: 201 });
 }

@@ -1,14 +1,16 @@
 import "dotenv/config";
-import { PrismaClient } from "../src/generated/prisma/client.js";
-import { PrismaPg } from "@prisma/adapter-pg";
+import { neon } from "@neondatabase/serverless";
+import { drizzle } from "drizzle-orm/neon-http";
+import { eq } from "drizzle-orm";
+import * as schema from "../lib/schema";
 
-const adapter = new PrismaPg({ connectionString: process.env.DATABASE_URL! });
-const prisma = new PrismaClient({ adapter });
+const sql = neon(process.env.DATABASE_URL!);
+const db = drizzle(sql, { schema });
 
 async function main() {
   console.log("Seeding master categories...");
 
-  const masterCategories = [
+  const masterCategoriesData = [
     { name: "Expense", isExcluded: false, displayOrder: 1 },
     { name: "Business Expense", isExcluded: false, displayOrder: 2 },
     { name: "Fixed Payment", isExcluded: false, displayOrder: 3 },
@@ -22,12 +24,15 @@ async function main() {
   ];
 
   const mcMap: Record<string, number> = {};
-  for (const mc of masterCategories) {
-    const created = await prisma.masterCategory.upsert({
-      where: { name: mc.name },
-      update: { isExcluded: mc.isExcluded, displayOrder: mc.displayOrder },
-      create: mc,
-    });
+  for (const mc of masterCategoriesData) {
+    const [created] = await db
+      .insert(schema.masterCategories)
+      .values(mc)
+      .onConflictDoUpdate({
+        target: schema.masterCategories.name,
+        set: { isExcluded: mc.isExcluded, displayOrder: mc.displayOrder },
+      })
+      .returning();
     mcMap[mc.name] = created.id;
   }
 
@@ -135,16 +140,18 @@ async function main() {
   };
 
   for (const [name, masterName] of Object.entries(spendCategoryMap)) {
-    await prisma.spendCategory.upsert({
-      where: { name },
-      update: { masterCategoryId: mcMap[masterName] },
-      create: { name, masterCategoryId: mcMap[masterName] },
-    });
+    await db
+      .insert(schema.spendCategories)
+      .values({ name, masterCategoryId: mcMap[masterName] })
+      .onConflictDoUpdate({
+        target: schema.spendCategories.name,
+        set: { masterCategoryId: mcMap[masterName] },
+      });
   }
 
   console.log("Seeding bank accounts...");
 
-  const bankAccounts = [
+  const bankAccountsData = [
     { source: "Citibank", accountName: "Citi Rewards", accountType: "credit_card" },
     { source: "Citibank", accountName: "Citi PremierMiles", accountType: "credit_card" },
     { source: "OCBC", accountName: "OCBC 360 Account", accountType: "savings" },
@@ -153,17 +160,20 @@ async function main() {
     { source: "DBS", accountName: "DBS Account", accountType: "savings" },
   ];
 
-  for (const ba of bankAccounts) {
-    await prisma.bankAccount.upsert({
-      where: { id: bankAccounts.indexOf(ba) + 1 },
-      update: ba,
-      create: ba,
-    });
+  for (const ba of bankAccountsData) {
+    const idx = bankAccountsData.indexOf(ba) + 1;
+    await db
+      .insert(schema.bankAccounts)
+      .values({ id: idx, ...ba })
+      .onConflictDoUpdate({
+        target: schema.bankAccounts.id,
+        set: ba,
+      });
   }
 
   console.log("Seeding investment accounts...");
 
-  const investmentAccounts = [
+  const investmentAccountsData = [
     { name: "SYFE Brokerage", provider: "SYFE", accountType: "brokerage" },
     { name: "SYFE Cash Management", provider: "SYFE", accountType: "cash_management" },
     { name: "SYFE Managed Portfolio", provider: "SYFE", accountType: "managed_portfolio" },
@@ -177,25 +187,31 @@ async function main() {
     { name: "Pru Endowment", provider: "Prudential", accountType: "endowment" },
   ];
 
-  for (const ia of investmentAccounts) {
-    await prisma.investmentAccount.upsert({
-      where: { id: investmentAccounts.indexOf(ia) + 1 },
-      update: ia,
-      create: ia,
-    });
+  for (const ia of investmentAccountsData) {
+    const idx = investmentAccountsData.indexOf(ia) + 1;
+    await db
+      .insert(schema.investmentAccounts)
+      .values({ id: idx, ...ia })
+      .onConflictDoUpdate({
+        target: schema.investmentAccounts.id,
+        set: ia,
+      });
   }
 
   // Seed runway config
-  await prisma.runwayConfig.upsert({
-    where: { id: 1 },
-    update: {},
-    create: {
-      totalProceeds: 522782.06,
-      monthlyInvestmentTarget: 15000,
-      expectedReturnRate: 0.06,
+  await db
+    .insert(schema.runwayConfig)
+    .values({
+      id: 1,
+      totalProceeds: "522782.06",
+      monthlyInvestmentTarget: "15000",
+      expectedReturnRate: "0.06",
       projectionYears: 10,
-    },
-  });
+    })
+    .onConflictDoUpdate({
+      target: schema.runwayConfig.id,
+      set: {},
+    });
 
   console.log("Seed complete!");
 }
@@ -204,7 +220,4 @@ main()
   .catch((e) => {
     console.error(e);
     process.exit(1);
-  })
-  .finally(async () => {
-    await prisma.$disconnect();
   });

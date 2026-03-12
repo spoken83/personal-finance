@@ -1,12 +1,15 @@
 import "dotenv/config";
-import { PrismaClient } from "../src/generated/prisma/client.js";
-import { PrismaPg } from "@prisma/adapter-pg";
+import { neon } from "@neondatabase/serverless";
+import { drizzle } from "drizzle-orm/neon-http";
+import * as schema from "../src/lib/schema";
 
-const adapter = new PrismaPg({ connectionString: process.env.DATABASE_URL! });
-const prisma = new PrismaClient({ adapter });
+const sql = neon(process.env.DATABASE_URL!);
+const db = drizzle(sql, { schema });
 
 async function main() {
-  const txns = await prisma.transaction.findMany({ select: { date: true } });
+  const txns = await db.query.transactions.findMany({
+    columns: { date: true },
+  });
   const counts: Record<string, number> = {};
   for (const tx of txns) {
     const m = new Date(tx.date).toISOString().slice(0, 7);
@@ -22,4 +25,4 @@ async function main() {
   console.log(`  Total: ${total}`);
 }
 
-main().catch(console.error).finally(() => prisma.$disconnect());
+main().catch(console.error);

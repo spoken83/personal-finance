@@ -1,14 +1,15 @@
 import "dotenv/config";
-import { PrismaClient } from "../src/generated/prisma/client.js";
-import { PrismaPg } from "@prisma/adapter-pg";
+import { neon } from "@neondatabase/serverless";
+import { drizzle } from "drizzle-orm/neon-http";
 import * as fs from "fs";
 import * as path from "path";
+import * as schema from "../src/lib/schema";
 
-const adapter = new PrismaPg({ connectionString: process.env.DATABASE_URL! });
-const prisma = new PrismaClient({ adapter });
+const sql = neon(process.env.DATABASE_URL!);
+const db = drizzle(sql, { schema });
 
 async function main() {
-  const dumpPath = path.join(__dirname, "..", "prisma", "db-dump.json");
+  const dumpPath = path.join(__dirname, "..", "db-dump.json");
   if (!fs.existsSync(dumpPath)) {
     console.error("No dump file found at", dumpPath);
     process.exit(1);
@@ -21,67 +22,68 @@ async function main() {
 
   // Clear all data in dependency order
   console.log("\nClearing existing data...");
-  await prisma.investmentSnapshot.deleteMany();
-  await prisma.accountBalance.deleteMany();
-  await prisma.categorizationRule.deleteMany();
-  await prisma.transaction.deleteMany();
-  await prisma.runwayConfig.deleteMany();
-  await prisma.spendCategory.deleteMany();
-  await prisma.masterCategory.deleteMany();
-  await prisma.bankAccount.deleteMany();
-  await prisma.investmentAccount.deleteMany();
+  await db.delete(schema.investmentSnapshots);
+  await db.delete(schema.accountBalances);
+  await db.delete(schema.categorizationRules);
+  await db.delete(schema.transactions);
+  await db.delete(schema.runwayConfig);
+  await db.delete(schema.budgets);
+  await db.delete(schema.statementUploads);
+  await db.delete(schema.spendCategories);
+  await db.delete(schema.masterCategories);
+  await db.delete(schema.bankAccounts);
+  await db.delete(schema.investmentAccounts);
 
   // Restore in dependency order
   console.log("Restoring master categories...");
   for (const mc of dump.masterCategories) {
-    await prisma.masterCategory.create({ data: mc });
+    await db.insert(schema.masterCategories).values(mc);
   }
 
   console.log("Restoring spend categories...");
   for (const sc of dump.spendCategories) {
-    await prisma.spendCategory.create({ data: sc });
+    await db.insert(schema.spendCategories).values(sc);
   }
 
   console.log("Restoring bank accounts...");
   for (const ba of dump.bankAccounts) {
-    await prisma.bankAccount.create({ data: ba });
+    await db.insert(schema.bankAccounts).values(ba);
   }
 
   console.log("Restoring investment accounts...");
   for (const ia of dump.investmentAccounts) {
-    await prisma.investmentAccount.create({ data: ia });
+    await db.insert(schema.investmentAccounts).values(ia);
   }
 
   console.log("Restoring transactions...");
-  // Batch insert for performance
   const batchSize = 100;
   for (let i = 0; i < dump.transactions.length; i += batchSize) {
     const batch = dump.transactions.slice(i, i + batchSize);
-    await prisma.transaction.createMany({ data: batch });
+    await db.insert(schema.transactions).values(batch);
   }
   console.log(`  ${dump.transactions.length} transactions restored`);
 
   console.log("Restoring account balances...");
   for (const ab of dump.accountBalances) {
-    await prisma.accountBalance.create({ data: ab });
+    await db.insert(schema.accountBalances).values(ab);
   }
 
   console.log("Restoring investment snapshots...");
   for (const is_ of dump.investmentSnapshots) {
-    await prisma.investmentSnapshot.create({ data: is_ });
+    await db.insert(schema.investmentSnapshots).values(is_);
   }
 
   if (dump.categorizationRules?.length > 0) {
     console.log("Restoring categorization rules...");
     for (const cr of dump.categorizationRules) {
-      await prisma.categorizationRule.create({ data: cr });
+      await db.insert(schema.categorizationRules).values(cr);
     }
   }
 
   if (dump.runwayConfig?.length > 0) {
     console.log("Restoring runway config...");
     for (const rc of dump.runwayConfig) {
-      await prisma.runwayConfig.create({ data: rc });
+      await db.insert(schema.runwayConfig).values(rc);
     }
   }
 
@@ -92,7 +94,4 @@ main()
   .catch((e) => {
     console.error(e);
     process.exit(1);
-  })
-  .finally(async () => {
-    await prisma.$disconnect();
   });

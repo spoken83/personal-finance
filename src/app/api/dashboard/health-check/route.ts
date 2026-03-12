@@ -1,10 +1,12 @@
 import { NextResponse } from "next/server";
-import { prisma } from "@/lib/db";
+import { db } from "@/lib/db";
+import { transactions, accountBalances, investmentSnapshots } from "@/lib/schema";
+import { asc } from "drizzle-orm";
 
 export async function GET() {
-  const transactions = await prisma.transaction.findMany({
-    include: { masterCategory: true },
-    orderBy: { date: "asc" },
+  const txList = await db.query.transactions.findMany({
+    with: { masterCategory: true },
+    orderBy: [asc(transactions.date)],
   });
 
   // Build monthly aggregates
@@ -17,7 +19,7 @@ export async function GET() {
 
   const excludeFromSpending = ["Money In", "Investment", "Repayment(exclude)", "Internal Trf(exclude)", "Rental"];
 
-  for (const tx of transactions) {
+  for (const tx of txList) {
     const month = new Date(tx.date).toISOString().slice(0, 7);
     const cat = tx.masterCategory.name;
     const amt = Number(tx.accountingAmt);
@@ -36,19 +38,19 @@ export async function GET() {
 
   // Get all months that have any transactions
   const allMonths = new Set<string>();
-  for (const tx of transactions) {
+  for (const tx of txList) {
     allMonths.add(new Date(tx.date).toISOString().slice(0, 7));
   }
   const months = [...allMonths].sort();
 
   // Get actual bank balances
-  const bankBalances = await prisma.accountBalance.findMany({
-    include: { bankAccount: true },
-    orderBy: [{ month: "asc" }, { bankAccountId: "asc" }],
+  const bankBalanceList = await db.query.accountBalances.findMany({
+    with: { bankAccount: true },
+    orderBy: [asc(accountBalances.month), asc(accountBalances.bankAccountId)],
   });
 
   const balancesByMonth: Record<string, { accounts: Record<string, number>; total: number }> = {};
-  for (const bal of bankBalances) {
+  for (const bal of bankBalanceList) {
     const month = bal.month.toISOString().slice(0, 7);
     if (!balancesByMonth[month]) balancesByMonth[month] = { accounts: {}, total: 0 };
     const amt = Number(bal.actualBalance);
@@ -57,13 +59,13 @@ export async function GET() {
   }
 
   // Get investment snapshots
-  const investmentSnapshots = await prisma.investmentSnapshot.findMany({
-    include: { investmentAccount: true },
-    orderBy: [{ month: "asc" }, { investmentAccountId: "asc" }],
+  const investmentSnapshotList = await db.query.investmentSnapshots.findMany({
+    with: { investmentAccount: true },
+    orderBy: [asc(investmentSnapshots.month), asc(investmentSnapshots.investmentAccountId)],
   });
 
   const investmentsByMonth: Record<string, { accounts: Record<string, number>; total: number }> = {};
-  for (const snap of investmentSnapshots) {
+  for (const snap of investmentSnapshotList) {
     const month = snap.month.toISOString().slice(0, 7);
     if (!investmentsByMonth[month]) investmentsByMonth[month] = { accounts: {}, total: 0 };
     const amt = Number(snap.balance);
@@ -72,21 +74,18 @@ export async function GET() {
   }
 
   // Calculate expected balance
-  // Logic matches Excel: Start with totalProceeds, subtract only actual spending each month
-  // Do NOT add Money In (the proceeds ARE the starting balance, Money In would double-count)
-  // Do NOT subtract Investment outflows (they're reallocations to investment accounts)
-  const runwayConfig = await prisma.runwayConfig.findFirst();
-  const startingBalance = runwayConfig ? Number(runwayConfig.totalProceeds) : 0;
+  const config = await db.query.runwayConfig.findFirst();
+  const startingBalance = config ? Number(config.totalProceeds) : 0;
 
   let expectedBalance = startingBalance;
   const monthlyHealthCheck = months.map((month) => {
-    const spending = Math.abs(monthlySpending[month] || 0); // spending amounts are negative, make positive
+    const spending = Math.abs(monthlySpending[month] || 0);
     const rental = Math.abs(monthlyRental[month] || 0);
     const moneyIn = monthlyMoneyIn[month] || 0;
     const totalOutflow = spending + rental;
     const netFlow = -totalOutflow + moneyIn;
 
-    expectedBalance -= totalOutflow; // subtract both spending and rental
+    expectedBalance -= totalOutflow;
 
     const actualBankTotal = balancesByMonth[month]?.total ?? null;
     const actualInvestmentTotal = investmentsByMonth[month]?.total ?? null;
@@ -120,7 +119,7 @@ export async function GET() {
     recentMonths.reduce((sum, m) => sum + Math.abs(monthlySpending[m] || 0), 0) /
     recentMonths.length;
 
-  // Average monthly money in (last 6 months, excluding outlier Sales Proceeds)
+  // Average monthly money in (last 6 months)
   const avgMonthlyMoneyIn =
     recentMonths.reduce((sum, m) => sum + (monthlyMoneyIn[m] || 0), 0) /
     recentMonths.length;
@@ -142,12 +141,12 @@ export async function GET() {
       avgMonthlyBurn,
       avgMonthlyMoneyIn,
       monthsRemaining: Math.round(monthsRemaining * 10) / 10,
-      runwayConfig: runwayConfig
+      runwayConfig: config
         ? {
-            totalProceeds: Number(runwayConfig.totalProceeds),
-            expectedReturnRate: Number(runwayConfig.expectedReturnRate),
-            projectionYears: runwayConfig.projectionYears,
-            monthlyInvestmentTarget: Number(runwayConfig.monthlyInvestmentTarget),
+            totalProceeds: Number(config.totalProceeds),
+            expectedReturnRate: Number(config.expectedReturnRate),
+            projectionYears: config.projectionYears,
+            monthlyInvestmentTarget: Number(config.monthlyInvestmentTarget),
           }
         : null,
     },

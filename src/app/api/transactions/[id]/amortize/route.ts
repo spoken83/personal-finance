@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/db";
+import { db } from "@/lib/db";
+import { transactions } from "@/lib/schema";
+import { eq } from "drizzle-orm";
 
 export async function POST(
   request: NextRequest,
@@ -17,8 +19,8 @@ export async function POST(
     );
   }
 
-  const parent = await prisma.transaction.findUnique({
-    where: { id: txId },
+  const parent = await db.query.transactions.findFirst({
+    where: eq(transactions.id, txId),
   });
 
   if (!parent) {
@@ -45,32 +47,33 @@ export async function POST(
   const [startYear, startMon] = startMonth.split("-").map(Number);
 
   // Create child transactions + mark parent as amortized in a single transaction
-  const result = await prisma.$transaction(async (tx) => {
+  const result = await db.transaction(async (tx) => {
     // Mark parent as amortized
-    await tx.transaction.update({
-      where: { id: txId },
-      data: { isAmortized: true },
-    });
+    await tx
+      .update(transactions)
+      .set({ isAmortized: true })
+      .where(eq(transactions.id, txId));
 
     const children = [];
     for (let i = 0; i < months; i++) {
       const d = new Date(startYear, startMon - 1 + i, 15); // mid-month
       const isLast = i === months - 1;
 
-      const child = await tx.transaction.create({
-        data: {
+      const [child] = await tx
+        .insert(transactions)
+        .values({
           bankAccountId: parent.bankAccountId,
           date: d,
           description: `${parent.description} (${i + 1}/${months})`,
-          accountingAmt: isLast ? lastAmt : splitAmt,
-          amountFcy: totalFcy !== null ? (isLast ? lastFcy : splitFcy) : null,
+          accountingAmt: String(isLast ? lastAmt : splitAmt),
+          amountFcy: totalFcy !== null ? String(isLast ? lastFcy : splitFcy) : null,
           fcyCurrency: parent.fcyCurrency,
           spendCategoryId: parent.spendCategoryId,
           masterCategoryId: parent.masterCategoryId,
           isConfirmed: true,
           parentTransactionId: txId,
-        },
-      });
+        })
+        .returning();
       children.push(child);
     }
 
@@ -88,25 +91,25 @@ export async function DELETE(
   const { id } = await params;
   const txId = parseInt(id);
 
-  const parent = await prisma.transaction.findUnique({
-    where: { id: txId },
+  const parent = await db.query.transactions.findFirst({
+    where: eq(transactions.id, txId),
   });
 
   if (!parent || !parent.isAmortized) {
     return NextResponse.json({ error: "Transaction is not amortized" }, { status: 400 });
   }
 
-  await prisma.$transaction(async (tx) => {
+  await db.transaction(async (tx) => {
     // Delete all children
-    await tx.transaction.deleteMany({
-      where: { parentTransactionId: txId },
-    });
+    await tx
+      .delete(transactions)
+      .where(eq(transactions.parentTransactionId, txId));
 
     // Un-amortize the parent
-    await tx.transaction.update({
-      where: { id: txId },
-      data: { isAmortized: false },
-    });
+    await tx
+      .update(transactions)
+      .set({ isAmortized: false })
+      .where(eq(transactions.id, txId));
   });
 
   return NextResponse.json({ success: true });

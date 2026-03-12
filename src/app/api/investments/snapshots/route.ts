@@ -1,33 +1,40 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/db";
+import { db } from "@/lib/db";
+import { investmentSnapshots } from "@/lib/schema";
+import { eq } from "drizzle-orm";
 
 export async function POST(request: NextRequest) {
   const body = await request.json();
   const { investmentAccountId, month, balance, contributions, withdrawals } = body;
 
   const monthDate = new Date(month + "-01");
+  const invAcctId = parseInt(investmentAccountId);
 
-  const snapshot = await prisma.investmentSnapshot.upsert({
-    where: {
-      investmentAccountId_month: {
-        investmentAccountId: parseInt(investmentAccountId),
-        month: monthDate,
+  const values = {
+    investmentAccountId: invAcctId,
+    month: monthDate,
+    balance: parseFloat(balance).toString(),
+    contributions: parseFloat(contributions || "0").toString(),
+    withdrawals: parseFloat(withdrawals || "0").toString(),
+  };
+
+  const [snapshot] = await db
+    .insert(investmentSnapshots)
+    .values(values)
+    .onConflictDoUpdate({
+      target: [investmentSnapshots.investmentAccountId, investmentSnapshots.month],
+      set: {
+        balance: values.balance,
+        contributions: values.contributions,
+        withdrawals: values.withdrawals,
       },
-    },
-    update: {
-      balance: parseFloat(balance),
-      contributions: parseFloat(contributions || "0"),
-      withdrawals: parseFloat(withdrawals || "0"),
-    },
-    create: {
-      investmentAccountId: parseInt(investmentAccountId),
-      month: monthDate,
-      balance: parseFloat(balance),
-      contributions: parseFloat(contributions || "0"),
-      withdrawals: parseFloat(withdrawals || "0"),
-    },
-    include: { investmentAccount: true },
+    })
+    .returning();
+
+  const snapshotWithRelation = await db.query.investmentSnapshots.findFirst({
+    where: eq(investmentSnapshots.id, snapshot.id),
+    with: { investmentAccount: true },
   });
 
-  return NextResponse.json(snapshot);
+  return NextResponse.json(snapshotWithRelation);
 }

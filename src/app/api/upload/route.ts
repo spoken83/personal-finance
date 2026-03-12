@@ -1,5 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/db";
+import { db } from "@/lib/db";
+import {
+  statementUploads,
+  transactions,
+  bankAccounts,
+  spendCategories,
+  categorizationRules,
+} from "@/lib/schema";
+import { eq, and, ilike, not, desc, sql } from "drizzle-orm";
 import { extractTextFromPDF, detectBank } from "@/lib/pdf-parser";
 import { parseCSV } from "@/lib/csv-parser";
 import {
@@ -10,10 +18,10 @@ import {
 import { resolveSpendCategory } from "@/lib/categorizer";
 
 export async function GET() {
-  const uploads = await prisma.statementUpload.findMany({
-    orderBy: { uploadedAt: "desc" },
-    take: 20,
-    include: {
+  const uploads = await db.query.statementUploads.findMany({
+    orderBy: [desc(statementUploads.uploadedAt)],
+    limit: 20,
+    with: {
       bankAccount: true,
     },
   });
@@ -34,14 +42,15 @@ export async function POST(request: NextRequest) {
   const fileType = filename.endsWith(".pdf") ? "pdf" : "csv";
 
   // Create upload record
-  const upload = await prisma.statementUpload.create({
-    data: {
+  const [upload] = await db
+    .insert(statementUploads)
+    .values({
       filename,
       fileType,
       bankAccountId: bankAccountIdStr ? parseInt(bankAccountIdStr) : null,
       status: "processing",
-    },
-  });
+    })
+    .returning();
 
   try {
     let categorizedTransactions: CategorizedTransaction[];
@@ -53,10 +62,10 @@ export async function POST(request: NextRequest) {
       const csvTransactions = parseCSV(text);
 
       if (csvTransactions.length === 0) {
-        await prisma.statementUpload.update({
-          where: { id: upload.id },
-          data: { status: "failed" },
-        });
+        await db
+          .update(statementUploads)
+          .set({ status: "failed" })
+          .where(eq(statementUploads.id, upload.id));
         return NextResponse.json(
           { error: "No transactions found in CSV" },
           { status: 400 }
@@ -82,10 +91,10 @@ export async function POST(request: NextRequest) {
     } else {
       // PDF path: extract text -> Claude extract -> Claude categorize
       if (!process.env.OPENAI_API_KEY) {
-        await prisma.statementUpload.update({
-          where: { id: upload.id },
-          data: { status: "failed" },
-        });
+        await db
+          .update(statementUploads)
+          .set({ status: "failed" })
+          .where(eq(statementUploads.id, upload.id));
         return NextResponse.json(
           { error: "OPENAI_API_KEY not configured. Please set it in .env" },
           { status: 500 }
@@ -96,10 +105,10 @@ export async function POST(request: NextRequest) {
       const pdfText = await extractTextFromPDF(buffer);
 
       // Save raw text for debugging
-      await prisma.statementUpload.update({
-        where: { id: upload.id },
-        data: { rawText: pdfText },
-      });
+      await db
+        .update(statementUploads)
+        .set({ rawText: pdfText })
+        .where(eq(statementUploads.id, upload.id));
 
       // Detect bank from PDF content + filename
       detectedBank = detectBank(pdfText, filename);
@@ -109,8 +118,8 @@ export async function POST(request: NextRequest) {
       let accountName = detectedBank?.accountName || "Unknown";
 
       if (bankAccountIdStr) {
-        const ba = await prisma.bankAccount.findUnique({
-          where: { id: parseInt(bankAccountIdStr) },
+        const ba = await db.query.bankAccounts.findFirst({
+          where: eq(bankAccounts.id, parseInt(bankAccountIdStr)),
         });
         if (ba) {
           bankSource = ba.source;
@@ -128,16 +137,16 @@ export async function POST(request: NextRequest) {
 
       // Stage 2: Categorize via Claude
       // Load categories and rules for the prompt
-      const spendCategories = await prisma.spendCategory.findMany({
-        include: { masterCategory: true },
+      const spendCats = await db.query.spendCategories.findMany({
+        with: { masterCategory: true },
       });
-      const rules = await prisma.categorizationRule.findMany({
-        where: { isActive: true },
-        include: { spendCategory: true },
-        orderBy: { priority: "desc" },
+      const rules = await db.query.categorizationRules.findMany({
+        where: eq(categorizationRules.isActive, true),
+        with: { spendCategory: true },
+        orderBy: [desc(categorizationRules.priority)],
       });
 
-      const categoryList = spendCategories.map((sc) => ({
+      const categoryList = spendCats.map((sc) => ({
         spend: sc.name,
         master: sc.masterCategory.name,
       }));
@@ -158,40 +167,36 @@ export async function POST(request: NextRequest) {
     let bankAccountId = bankAccountIdStr ? parseInt(bankAccountIdStr) : null;
     if (!bankAccountId && detectedBank) {
       // Try exact match first, then fuzzy match on account name
-      let ba = await prisma.bankAccount.findFirst({
-        where: {
-          source: detectedBank.source,
-          accountName: detectedBank.accountName,
-        },
+      let ba = await db.query.bankAccounts.findFirst({
+        where: and(
+          eq(bankAccounts.source, detectedBank.source),
+          eq(bankAccounts.accountName, detectedBank.accountName)
+        ),
       });
       if (!ba) {
         // Fuzzy: match account name containing the detected name, or source containing
-        ba = await prisma.bankAccount.findFirst({
-          where: {
-            accountName: { contains: detectedBank.accountName, mode: "insensitive" },
-          },
+        ba = await db.query.bankAccounts.findFirst({
+          where: ilike(bankAccounts.accountName, `%${detectedBank.accountName}%`),
         });
       }
       if (!ba) {
         // Try matching by source name (e.g., "Citi" -> "Citibank")
-        ba = await prisma.bankAccount.findFirst({
-          where: {
-            source: { contains: detectedBank.source, mode: "insensitive" },
-          },
+        ba = await db.query.bankAccounts.findFirst({
+          where: ilike(bankAccounts.source, `%${detectedBank.source}%`),
         });
       }
       bankAccountId = ba?.id || null;
     }
 
     // Update upload with bank account and transaction count
-    await prisma.statementUpload.update({
-      where: { id: upload.id },
-      data: {
+    await db
+      .update(statementUploads)
+      .set({
         bankAccountId,
         status: "pending_review",
         transactionCount: categorizedTransactions.length,
-      },
-    });
+      })
+      .where(eq(statementUploads.id, upload.id));
 
     // Resolve categories and create pending transactions
     const pendingTransactions = [];
@@ -203,8 +208,8 @@ export async function POST(request: NextRequest) {
 
       if (!resolved) {
         // Fallback: use "Others" category
-        const others = await prisma.spendCategory.findFirst({
-          where: { name: "Others" },
+        const others = await db.query.spendCategories.findFirst({
+          where: eq(spendCategories.name, "Others"),
         });
         if (others) {
           pendingTransactions.push({
@@ -224,27 +229,32 @@ export async function POST(request: NextRequest) {
     }
 
     // Clean up unconfirmed transactions from previous uploads to this bank account
-    // This handles the case where user uploaded, didn't confirm, and re-uploads
     const txBankId = bankAccountId || 1;
-    const cleanedUp = await prisma.transaction.deleteMany({
-      where: {
-        bankAccountId: txBankId,
-        isConfirmed: false,
-      },
-    });
-    if (cleanedUp.count > 0) {
-      console.log(`[Upload] Cleaned up ${cleanedUp.count} unconfirmed transactions for bank account ${txBankId}`);
+    const cleanedUp = await db
+      .delete(transactions)
+      .where(
+        and(
+          eq(transactions.bankAccountId, txBankId),
+          eq(transactions.isConfirmed, false)
+        )
+      );
+    if (cleanedUp.rowCount && cleanedUp.rowCount > 0) {
+      console.log(`[Upload] Cleaned up ${cleanedUp.rowCount} unconfirmed transactions for bank account ${txBankId}`);
     }
 
     // Also mark any previous pending_review uploads for this bank as superseded
-    await prisma.statementUpload.updateMany({
-      where: {
-        bankAccountId,
-        status: "pending_review",
-        id: { not: upload.id },
-      },
-      data: { status: "superseded" },
-    });
+    if (bankAccountId) {
+      await db
+        .update(statementUploads)
+        .set({ status: "superseded" })
+        .where(
+          and(
+            eq(statementUploads.bankAccountId, bankAccountId),
+            eq(statementUploads.status, "pending_review"),
+            not(eq(statementUploads.id, upload.id))
+          )
+        );
+    }
 
     // Save as unconfirmed transactions (skip duplicates against CONFIRMED transactions only)
     const created = [];
@@ -253,14 +263,16 @@ export async function POST(request: NextRequest) {
       const txDate = new Date(tx.date);
 
       // Only skip if a CONFIRMED transaction with same details already exists
-      const existing = await prisma.transaction.findFirst({
-        where: {
-          bankAccountId: txBankId,
-          date: txDate,
-          description: tx.description,
-          accountingAmt: tx.accounting_amt,
-          isConfirmed: true,
-        },
+      // Compare date as ISO string (YYYY-MM-DD) to avoid timezone mismatch
+      const txDateStr = txDate.toISOString().split("T")[0];
+      const existing = await db.query.transactions.findFirst({
+        where: and(
+          eq(transactions.bankAccountId, txBankId),
+          sql`${transactions.date} = ${txDateStr}::date`,
+          eq(transactions.description, tx.description),
+          eq(transactions.accountingAmt, String(tx.accounting_amt)),
+          eq(transactions.isConfirmed, true)
+        ),
       });
 
       if (existing) {
@@ -274,36 +286,44 @@ export async function POST(request: NextRequest) {
         continue;
       }
 
-      const transaction = await prisma.transaction.create({
-        data: {
+      const amountFcy = (tx.amount_fcy != null && tx.amount_fcy !== "" && tx.amount_fcy !== undefined) ? String(tx.amount_fcy) : null;
+      const fcyCurrency = (tx.fcy_currency && tx.fcy_currency.trim() !== "") ? tx.fcy_currency : null;
+      const [transaction] = await db
+        .insert(transactions)
+        .values({
           bankAccountId: txBankId,
           date: txDate,
           description: tx.description,
-          amountFcy: tx.amount_fcy,
-          fcyCurrency: tx.fcy_currency,
-          accountingAmt: tx.accounting_amt,
+          amountFcy,
+          fcyCurrency,
+          accountingAmt: String(tx.accounting_amt),
           spendCategoryId: tx.spendCategoryId,
           masterCategoryId: tx.masterCategoryId,
           statementUploadId: upload.id,
           isConfirmed: false,
-        },
-        include: {
+        })
+        .returning();
+
+      const transactionWithRelations = await db.query.transactions.findFirst({
+        where: eq(transactions.id, transaction.id),
+        with: {
           bankAccount: true,
           spendCategory: true,
           masterCategory: true,
         },
       });
+
       created.push({
-        ...transaction,
+        ...transactionWithRelations,
         confidence: tx.confidence || "high",
       });
     }
 
     // Update upload with actual created count
-    await prisma.statementUpload.update({
-      where: { id: upload.id },
-      data: { transactionCount: created.length },
-    });
+    await db
+      .update(statementUploads)
+      .set({ transactionCount: created.length })
+      .where(eq(statementUploads.id, upload.id));
 
     console.log(`[Upload] ${filename}: GPT extracted ${categorizedTransactions.length} transactions, resolved ${pendingTransactions.length}, created ${created.length}, skipped ${skipped.length} duplicates`);
 
@@ -322,10 +342,10 @@ export async function POST(request: NextRequest) {
     const errStack = error instanceof Error ? error.stack : undefined;
     console.error("Upload processing error:", errMsg);
     if (errStack) console.error(errStack);
-    await prisma.statementUpload.update({
-      where: { id: upload.id },
-      data: { status: "failed" },
-    });
+    await db
+      .update(statementUploads)
+      .set({ status: "failed" })
+      .where(eq(statementUploads.id, upload.id));
     return NextResponse.json(
       {
         error: "Failed to process statement",

@@ -1,15 +1,17 @@
 import { NextResponse } from "next/server";
-import { prisma } from "@/lib/db";
+import { db } from "@/lib/db";
+import { transactions, masterCategories } from "@/lib/schema";
+import { eq, asc } from "drizzle-orm";
 
 export async function GET() {
   // Get all transactions with both master and spend categories
-  const transactions = await prisma.transaction.findMany({
-    where: { isAmortized: false },
-    include: {
+  const txList = await db.query.transactions.findMany({
+    where: eq(transactions.isAmortized, false),
+    with: {
       masterCategory: true,
       spendCategory: true,
     },
-    orderBy: { date: "asc" },
+    orderBy: [asc(transactions.date)],
   });
 
   // Build monthly breakdown by master category
@@ -20,7 +22,7 @@ export async function GET() {
   const monthlySpendBreakdown: Record<string, Record<string, number>> = {};
   const spendCategoryTotals: Record<string, number> = {};
 
-  for (const tx of transactions) {
+  for (const tx of txList) {
     const month = new Date(tx.date).toISOString().slice(0, 7);
     const masterName = tx.masterCategory.name;
     const spendName = tx.spendCategory.name;
@@ -39,8 +41,8 @@ export async function GET() {
   }
 
   // Get master categories for ordering
-  const masterCategories = await prisma.masterCategory.findMany({
-    orderBy: { displayOrder: "asc" },
+  const masterCats = await db.query.masterCategories.findMany({
+    orderBy: [asc(masterCategories.displayOrder)],
   });
 
   // Calculate totals excluding excluded categories
@@ -51,7 +53,7 @@ export async function GET() {
   for (const month of months) {
     let total = 0;
     let spending = 0;
-    for (const mc of masterCategories) {
+    for (const mc of masterCats) {
       const val = monthlyBreakdown[month][mc.name] || 0;
       total += val;
       if (!mc.isExcluded) spending += val;
@@ -62,7 +64,7 @@ export async function GET() {
 
   return NextResponse.json({
     months,
-    masterCategories,
+    masterCategories: masterCats,
     monthlyBreakdown,
     monthlySpendBreakdown,
     categoryTotals,

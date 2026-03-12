@@ -1,19 +1,21 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/db";
+import { db } from "@/lib/db";
+import { budgets, runwayConfig } from "@/lib/schema";
+import { eq, and, isNull, asc } from "drizzle-orm";
 
 export async function GET() {
-  const budgets = await prisma.budget.findMany({
-    where: { effectiveTo: null },
-    include: {
+  const budgetList = await db.query.budgets.findMany({
+    where: isNull(budgets.effectiveTo),
+    with: {
       masterCategory: true,
       spendCategory: true,
     },
-    orderBy: { masterCategoryId: "asc" },
+    orderBy: [asc(budgets.masterCategoryId)],
   });
 
-  const runwayConfig = await prisma.runwayConfig.findFirst();
+  const config = await db.query.runwayConfig.findFirst();
 
-  return NextResponse.json({ budgets, runwayConfig });
+  return NextResponse.json({ budgets: budgetList, runwayConfig: config });
 }
 
 export async function POST(request: NextRequest) {
@@ -21,25 +23,30 @@ export async function POST(request: NextRequest) {
   const { masterCategoryId, spendCategoryId, monthlyAmount } = body;
 
   // Deactivate any existing budget for this category
-  const where: Record<string, unknown> = { effectiveTo: null };
-  if (masterCategoryId) where.masterCategoryId = parseInt(masterCategoryId);
-  if (spendCategoryId) where.spendCategoryId = parseInt(spendCategoryId);
+  const conditions = [isNull(budgets.effectiveTo)];
+  if (masterCategoryId) conditions.push(eq(budgets.masterCategoryId, parseInt(masterCategoryId)));
+  if (spendCategoryId) conditions.push(eq(budgets.spendCategoryId, parseInt(spendCategoryId)));
 
-  await prisma.budget.updateMany({
-    where,
-    data: { effectiveTo: new Date() },
-  });
+  await db
+    .update(budgets)
+    .set({ effectiveTo: new Date() })
+    .where(and(...conditions));
 
   // Create new budget
-  const budget = await prisma.budget.create({
-    data: {
+  const [budget] = await db
+    .insert(budgets)
+    .values({
       masterCategoryId: masterCategoryId ? parseInt(masterCategoryId) : null,
       spendCategoryId: spendCategoryId ? parseInt(spendCategoryId) : null,
-      monthlyAmount: parseFloat(monthlyAmount),
+      monthlyAmount: parseFloat(monthlyAmount).toString(),
       effectiveFrom: new Date(),
-    },
-    include: { masterCategory: true, spendCategory: true },
+    })
+    .returning();
+
+  const budgetWithRelations = await db.query.budgets.findFirst({
+    where: eq(budgets.id, budget.id),
+    with: { masterCategory: true, spendCategory: true },
   });
 
-  return NextResponse.json(budget);
+  return NextResponse.json(budgetWithRelations);
 }

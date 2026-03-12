@@ -1,4 +1,6 @@
-import { prisma } from "@/lib/db";
+import { db } from "@/lib/db";
+import { categorizationRules, spendCategories, masterCategories } from "@/lib/schema";
+import { eq, desc } from "drizzle-orm";
 
 interface RuleMatch {
   spendCategoryId: number;
@@ -12,14 +14,14 @@ interface RuleMatch {
  * Returns null if no rule matches.
  */
 export async function matchRule(description: string): Promise<RuleMatch | null> {
-  const rules = await prisma.categorizationRule.findMany({
-    where: { isActive: true },
-    include: {
+  const rules = await db.query.categorizationRules.findMany({
+    where: eq(categorizationRules.isActive, true),
+    with: {
       spendCategory: {
-        include: { masterCategory: true },
+        with: { masterCategory: true },
       },
     },
-    orderBy: { priority: "desc" },
+    orderBy: [desc(categorizationRules.priority)],
   });
 
   const lowerDesc = description.toLowerCase();
@@ -52,16 +54,16 @@ export async function resolveSpendCategory(
   const normalizedName = normalizeCategoryName(name);
 
   // Try exact match
-  const existing = await prisma.spendCategory.findUnique({
-    where: { name: normalizedName },
-    include: { masterCategory: true },
+  const existing = await db.query.spendCategories.findFirst({
+    where: eq(spendCategories.name, normalizedName),
+    with: { masterCategory: true },
   });
 
   if (existing) {
     // If a master category override was specified, look it up
     if (masterCategoryName) {
-      const mc = await prisma.masterCategory.findUnique({
-        where: { name: normalizeCategoryName(masterCategoryName) },
+      const mc = await db.query.masterCategories.findFirst({
+        where: eq(masterCategories.name, normalizeCategoryName(masterCategoryName)),
       });
       return {
         spendCategoryId: existing.id,
@@ -76,13 +78,14 @@ export async function resolveSpendCategory(
 
   // If not found, try to create it with the given master category
   if (masterCategoryName) {
-    const mc = await prisma.masterCategory.findUnique({
-      where: { name: normalizeCategoryName(masterCategoryName) },
+    const mc = await db.query.masterCategories.findFirst({
+      where: eq(masterCategories.name, normalizeCategoryName(masterCategoryName)),
     });
     if (mc) {
-      const created = await prisma.spendCategory.create({
-        data: { name: normalizedName, masterCategoryId: mc.id },
-      });
+      const [created] = await db
+        .insert(spendCategories)
+        .values({ name: normalizedName, masterCategoryId: mc.id })
+        .returning();
       return { spendCategoryId: created.id, masterCategoryId: mc.id };
     }
   }
