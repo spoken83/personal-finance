@@ -9,7 +9,7 @@ export const authOptions: NextAuthOptions = {
         passcode: { label: "Passcode", type: "password" },
       },
       async authorize(credentials) {
-        if (credentials?.passcode === (process.env.AUTH_PASSCODE || "121314")) {
+        if (credentials?.passcode === (process.env.AUTH_PASSCODE?.trim() || "121314")) {
           return { id: "1", name: "Admin" };
         }
         return null;
