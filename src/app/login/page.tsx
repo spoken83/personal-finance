@@ -70,11 +70,11 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-gray-50">
-      <Card className="w-full max-w-sm">
+    <div className="flex min-h-screen items-center justify-center bg-[#f8f9fb]">
+      <Card className="w-full max-w-sm shadow-sm">
         <CardHeader>
-          <CardTitle className="text-center text-2xl">Finance Tracker</CardTitle>
-          <p className="text-center text-sm text-gray-500">Enter your 6-digit passcode</p>
+          <CardTitle className="text-center text-xl font-semibold">Finance Tracker</CardTitle>
+          <p className="text-center text-sm text-gray-400">Enter your 6-digit passcode</p>
         </CardHeader>
         <CardContent>
           <div className="flex justify-center gap-2" onPaste={handlePaste}>
@@ -89,7 +89,7 @@ export default function LoginPage() {
                 onChange={(e) => handleChange(i, e.target.value)}
                 onKeyDown={(e) => handleKeyDown(i, e)}
                 disabled={submitting}
-                className="w-12 h-14 text-center text-2xl font-mono"
+                className="w-12 h-14 text-center text-2xl"
                 autoFocus={i === 0}
               />
             ))}

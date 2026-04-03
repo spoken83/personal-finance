@@ -222,8 +222,8 @@ export function TransactionModal({
             {!state.loading && transactions.length > 0 && (
               <>
                 {" "}· Total:{" "}
-                <span className="font-mono font-medium">
-                  {formatCurrency(total)}
+                <span className="font-medium">
+                  {formatCurrency(total, 2)}
                 </span>
               </>
             )}
@@ -306,11 +306,11 @@ export function TransactionModal({
                         {tx.bankAccount.accountName}
                       </td>
                       <td
-                        className={`py-2 text-right font-mono whitespace-nowrap ${
+                        className={`py-2 text-right whitespace-nowrap ${
                           amt >= 0 ? "text-green-600" : "text-red-600"
                         }`}
                       >
-                        {formatCurrency(amt)}
+                        {formatCurrency(amt, 2)}
                       </td>
                     </tr>
                   );
@@ -320,11 +320,11 @@ export function TransactionModal({
                     Total
                   </td>
                   <td
-                    className={`py-2 text-right font-mono ${
+                    className={`py-2 text-right ${
                       total >= 0 ? "text-green-600" : "text-red-600"
                     }`}
                   >
-                    {formatCurrency(total)}
+                    {formatCurrency(total, 2)}
                   </td>
                 </tr>
               </tbody>

@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { transactions, accountBalances, investmentSnapshots } from "@/lib/schema";
-import { asc } from "drizzle-orm";
+import { transactions, accountBalances, investmentSnapshots, bankAccounts, investmentAccounts } from "@/lib/schema";
+import { asc, eq } from "drizzle-orm";
 
 export async function GET() {
   const txList = await db.query.transactions.findMany({
@@ -43,35 +43,54 @@ export async function GET() {
   }
   const months = [...allMonths].sort();
 
-  // Get actual bank balances
+  // Non-liquid investment account types (tracked for reference, excluded from calculations)
+  const NON_LIQUID_TYPES = ["endowment", "SRS"];
+
+  // Get actual bank balances (exclude credit cards — they're not savings)
   const bankBalanceList = await db.query.accountBalances.findMany({
     with: { bankAccount: true },
     orderBy: [asc(accountBalances.month), asc(accountBalances.bankAccountId)],
   });
 
-  const balancesByMonth: Record<string, { accounts: Record<string, number>; total: number }> = {};
+  const balancesByMonth: Record<string, { accounts: Record<string, number>; accountIds: Record<string, number>; total: number }> = {};
   for (const bal of bankBalanceList) {
+    if (bal.bankAccount.accountType === "credit_card") continue;
     const month = bal.month.toISOString().slice(0, 7);
-    if (!balancesByMonth[month]) balancesByMonth[month] = { accounts: {}, total: 0 };
+    if (!balancesByMonth[month]) balancesByMonth[month] = { accounts: {}, accountIds: {}, total: 0 };
     const amt = Number(bal.actualBalance);
     balancesByMonth[month].accounts[bal.bankAccount.accountName] = amt;
+    balancesByMonth[month].accountIds[bal.bankAccount.accountName] = bal.bankAccountId;
     balancesByMonth[month].total += amt;
   }
 
-  // Get investment snapshots
+  // Get investment snapshots — separate liquid vs non-liquid
   const investmentSnapshotList = await db.query.investmentSnapshots.findMany({
     with: { investmentAccount: true },
     orderBy: [asc(investmentSnapshots.month), asc(investmentSnapshots.investmentAccountId)],
   });
 
-  const investmentsByMonth: Record<string, { accounts: Record<string, number>; total: number }> = {};
+  const investmentsByMonth: Record<string, { accounts: Record<string, number>; accountIds: Record<string, number>; total: number }> = {};
+  const nonLiquidByMonth: Record<string, { accounts: Record<string, number>; accountIds: Record<string, number>; total: number }> = {};
   for (const snap of investmentSnapshotList) {
     const month = snap.month.toISOString().slice(0, 7);
-    if (!investmentsByMonth[month]) investmentsByMonth[month] = { accounts: {}, total: 0 };
+    const isNonLiquid = NON_LIQUID_TYPES.includes(snap.investmentAccount.accountType || "");
+    const target = isNonLiquid ? nonLiquidByMonth : investmentsByMonth;
+    if (!target[month]) target[month] = { accounts: {}, accountIds: {}, total: 0 };
     const amt = Number(snap.balance);
-    investmentsByMonth[month].accounts[snap.investmentAccount.name] = amt;
-    investmentsByMonth[month].total += amt;
+    target[month].accounts[snap.investmentAccount.name] = amt;
+    target[month].accountIds[snap.investmentAccount.name] = snap.investmentAccountId;
+    target[month].total += amt;
   }
+
+  // Get all active accounts for balance editing (exclude credit cards from bank accounts)
+  const allBankAccounts = await db.query.bankAccounts.findMany({
+    where: eq(bankAccounts.isActive, true),
+    orderBy: [asc(bankAccounts.source)],
+  });
+  const allInvestmentAccounts = await db.query.investmentAccounts.findMany({
+    where: eq(investmentAccounts.isActive, true),
+    orderBy: [asc(investmentAccounts.name)],
+  });
 
   // Calculate expected balance
   const config = await db.query.runwayConfig.findFirst();
@@ -85,6 +104,8 @@ export async function GET() {
     const totalOutflow = spending + rental;
     const netFlow = -totalOutflow + moneyIn;
 
+    // Expected balance tracks: starting proceeds minus cumulative outflows
+    // Income is shown separately and reflected in actual balances, not here
     expectedBalance -= totalOutflow;
 
     const actualBankTotal = balancesByMonth[month]?.total ?? null;
@@ -105,7 +126,12 @@ export async function GET() {
       actualInvestmentBalance: actualInvestmentTotal,
       actualTotal,
       bankAccounts: balancesByMonth[month]?.accounts || {},
+      bankAccountIds: balancesByMonth[month]?.accountIds || {},
       investments: investmentsByMonth[month]?.accounts || {},
+      investmentAccountIds: investmentsByMonth[month]?.accountIds || {},
+      nonLiquid: nonLiquidByMonth[month]?.accounts || {},
+      nonLiquidIds: nonLiquidByMonth[month]?.accountIds || {},
+      nonLiquidTotal: nonLiquidByMonth[month]?.total ?? null,
       variance: actualTotal !== null && expectedBalance !== 0
         ? actualTotal / expectedBalance
         : null,
@@ -134,13 +160,22 @@ export async function GET() {
   return NextResponse.json({
     months,
     monthlyHealthCheck,
+    allBankAccounts: allBankAccounts
+      .filter((a) => a.accountType !== "credit_card")
+      .map((a) => ({ id: a.id, name: a.accountName, source: a.source })),
+    allInvestmentAccounts: allInvestmentAccounts
+      .filter((a) => !NON_LIQUID_TYPES.includes(a.accountType || ""))
+      .map((a) => ({ id: a.id, name: a.name, provider: a.provider })),
+    allNonLiquidAccounts: allInvestmentAccounts
+      .filter((a) => NON_LIQUID_TYPES.includes(a.accountType || ""))
+      .map((a) => ({ id: a.id, name: a.name, provider: a.provider })),
     summary: {
       startingBalance,
       currentExpectedBalance: currentExpected,
       currentActualBalance: monthlyHealthCheck.findLast((m) => m.actualTotal !== null)?.actualTotal ?? null,
       avgMonthlyBurn,
       avgMonthlyMoneyIn,
-      monthsRemaining: Math.round(monthsRemaining * 10) / 10,
+      monthsRemaining: monthsRemaining === Infinity ? -1 : Math.round(monthsRemaining * 10) / 10,
       runwayConfig: config
         ? {
             totalProceeds: Number(config.totalProceeds),

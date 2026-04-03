@@ -327,8 +327,10 @@ export default function TransactionsPage() {
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold">Transactions</h1>
-        <p className="text-sm text-gray-500">{total} transactions</p>
+        <div>
+          <h1 className="text-xl font-semibold text-gray-900">Transactions</h1>
+          <p className="text-sm text-gray-400">{total} transactions</p>
+        </div>
       </div>
 
       {/* Filters */}
@@ -588,7 +590,7 @@ export default function TransactionsPage() {
                         </Badge>
                       </TableCell>
                       <TableCell
-                        className={`text-right font-mono text-sm ${
+                        className={`text-right text-sm ${
                           amt >= 0 ? "text-green-600" : "text-red-600"
                         }`}
                       >
@@ -598,7 +600,7 @@ export default function TransactionsPage() {
                             className="hover:underline cursor-pointer"
                             title="Click to flip sign (credit ↔ debit)"
                           >
-                            {formatCurrency(amt)}
+                            {formatCurrency(amt, 2)}
                           </button>
                           {tx.parentTransactionId ? (
                             <button
@@ -628,11 +630,11 @@ export default function TransactionsPage() {
                     Page Total ({transactions.length} transactions)
                   </TableCell>
                   <TableCell
-                    className={`text-right font-mono text-sm font-bold ${
+                    className={`text-right text-sm font-bold ${
                       pageTotal >= 0 ? "text-green-600" : "text-red-600"
                     }`}
                   >
-                    {formatCurrency(pageTotal)}
+                    {formatCurrency(pageTotal, 2)}
                   </TableCell>
                 </TableRow>
               </>

@@ -106,7 +106,10 @@ export default function CategoriesPage() {
 
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-bold">Categories</h1>
+      <div>
+        <h1 className="text-xl font-semibold text-gray-900">Categories</h1>
+        <p className="text-sm text-gray-400">Manage spending categories and auto-categorization rules</p>
+      </div>
 
       <Tabs defaultValue="categories">
         <TabsList>
@@ -229,7 +232,7 @@ export default function CategoriesPage() {
                   <TableBody>
                     {rules.map((rule) => (
                       <TableRow key={rule.id}>
-                        <TableCell className="font-mono text-sm">
+                        <TableCell className="text-sm">
                           {rule.pattern}
                         </TableCell>
                         <TableCell>{rule.spendCategory.name}</TableCell>

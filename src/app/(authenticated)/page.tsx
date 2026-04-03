@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Table,
@@ -44,21 +44,21 @@ interface DashboardData {
 }
 
 const CHART_COLORS: Record<string, string> = {
-  Expense: "#ef4444",
-  "Business Expense": "#8b5cf6",
-  "Fixed Payment": "#f97316",
-  Adhoc: "#ec4899",
-  Investment: "#3b82f6",
-  "Money In": "#22c55e",
+  Expense: "#f87171",
+  "Business Expense": "#a78bfa",
+  "Fixed Payment": "#fb923c",
+  Adhoc: "#f472b6",
+  Investment: "#60a5fa",
+  "Money In": "#4ade80",
 };
 
 // These are excluded from the "spending" chart (Rental is separate pot, others are non-spending)
 const CHART_SPENDING_EXCLUDES = ["Money In", "Investment", "Rental"];
 
 const SUB_COLORS = [
-  "#ef4444", "#f97316", "#eab308", "#22c55e", "#06b6d4",
-  "#3b82f6", "#8b5cf6", "#ec4899", "#f43f5e", "#14b8a6",
-  "#a855f7", "#64748b", "#d946ef", "#0ea5e9", "#84cc16",
+  "#60a5fa", "#f87171", "#4ade80", "#fb923c", "#a78bfa",
+  "#f472b6", "#38bdf8", "#facc15", "#34d399", "#818cf8",
+  "#fb7185", "#94a3b8", "#c084fc", "#22d3ee", "#a3e635",
 ];
 
 type MonthFilter = "all" | "6" | "3" | "custom";
@@ -67,6 +67,9 @@ export default function DashboardPage() {
   const [data, setData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
   const [expandedCategories, setExpandedCategories] = useState<Set<string>>(
+    new Set()
+  );
+  const [checkedCategories, setCheckedCategories] = useState<Set<string>>(
     new Set()
   );
   const { state: modalState, openModal, closeModal, categoryMap } = useTransactionModal();
@@ -134,14 +137,17 @@ export default function DashboardPage() {
     });
   }
 
-  // Filter months based on selection
+  // Filter months based on selection, anchored to the viewing month
   const allMonths = data.months;
+  const currentMonth = viewMonth || allMonths[allMonths.length - 1] || "";
+  const currentMonthIdx = allMonths.indexOf(currentMonth);
+  const monthsUpToCurrent = allMonths.slice(0, currentMonthIdx + 1);
   const filteredMonths = (() => {
-    if (monthFilter === "all") return allMonths;
-    if (monthFilter === "3") return allMonths.slice(-3);
-    if (monthFilter === "6") return allMonths.slice(-6);
+    if (monthFilter === "all") return monthsUpToCurrent;
+    if (monthFilter === "3") return monthsUpToCurrent.slice(-3);
+    if (monthFilter === "6") return monthsUpToCurrent.slice(-6);
     // custom
-    return allMonths.filter(
+    return monthsUpToCurrent.filter(
       (m) => (!customFrom || m >= customFrom) && (!customTo || m <= customTo)
     );
   })();
@@ -155,8 +161,6 @@ export default function DashboardPage() {
 
   // Insight cards: compute anomalies per master category
   const INSIGHT_CATEGORIES = ["Expense", "Business Expense", "Fixed Payment", "Adhoc"];
-  const currentMonth = viewMonth || allMonths[allMonths.length - 1] || "";
-  const currentMonthIdx = allMonths.indexOf(currentMonth);
   const prev3Months = currentMonthIdx >= 1
     ? allMonths.slice(Math.max(0, currentMonthIdx - 3), currentMonthIdx)
     : [];
@@ -276,6 +280,32 @@ export default function DashboardPage() {
       })
     : [];
 
+  function toggleChecked(name: string) {
+    setCheckedCategories((prev) => {
+      const next = new Set(prev);
+      if (next.has(name)) next.delete(name);
+      else next.add(name);
+      return next;
+    });
+  }
+
+  // Trend chart data for checked master categories
+  const trendChartData = checkedCategories.size > 0
+    ? filteredMonths.map((month) => {
+        const entry: Record<string, string | number> = {
+          month: new Date(month + "-01").toLocaleDateString("en-SG", {
+            month: "short",
+            year: "2-digit",
+          }),
+        };
+        for (const name of checkedCategories) {
+          const raw = data.monthlyBreakdown[month]?.[name] || 0;
+          entry[name] = Math.abs(raw);
+        }
+        return entry;
+      })
+    : [];
+
   const chartTitle = drillCategory
     ? `${drillCategory} — Spending Trends`
     : "Monthly Spending by Category";
@@ -293,13 +323,15 @@ export default function DashboardPage() {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold">Financial Dashboard</h1>
+        <div>
+          <h1 className="text-xl font-semibold text-gray-900">Dashboard</h1>
+          <p className="text-sm text-gray-400">Your financial overview at a glance</p>
+        </div>
         <div className="flex items-center gap-2">
-          <span className="text-sm text-gray-500">Viewing:</span>
           <select
             value={currentMonth}
             onChange={(e) => setViewMonth(e.target.value)}
-            className="rounded-md border px-3 py-1.5 text-sm font-medium"
+            className="rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-sm text-gray-700 shadow-sm"
           >
             {[...allMonths].reverse().map((m) => (
               <option key={m} value={m}>
@@ -314,7 +346,7 @@ export default function DashboardPage() {
       </div>
 
       {/* Insight Cards */}
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
+      <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-4">
         {insights.map((ins) => {
           const isAdhoc = ins.masterName === "Adhoc";
           const hasData = ins.currentTotal > 0;
@@ -392,7 +424,7 @@ export default function DashboardPage() {
                         >
                           {sub.name}
                         </button>
-                        <span className="font-mono text-gray-700 whitespace-nowrap">
+                        <span className="text-gray-700 whitespace-nowrap">
                           {formatCurrency(-sub.current)}
                         </span>
                       </div>
@@ -417,7 +449,7 @@ export default function DashboardPage() {
                         >
                           {ins.topSpender.name}
                         </button>{" "}
-                        <span className="font-mono">
+                        <span className="">
                           {formatCurrency(-ins.topSpender.current)}
                         </span>
                       </div>
@@ -444,7 +476,7 @@ export default function DashboardPage() {
                               >
                                 {spike.name}
                               </button>{" "}
-                              <span className="font-mono text-gray-700">
+                              <span className="text-gray-700">
                                 {formatCurrency(-spike.current)}
                               </span>
                               <span className="text-red-500 ml-1">
@@ -470,9 +502,9 @@ export default function DashboardPage() {
       </div>
 
       {/* Monthly Spending Chart */}
-      <Card>
+      <Card className="shadow-sm">
         <CardHeader>
-          <CardTitle>{chartTitle}</CardTitle>
+          <CardTitle className="text-base font-semibold">{chartTitle}</CardTitle>
           <p className="text-xs text-gray-400">{chartSubtitle}</p>
         </CardHeader>
         <CardContent>
@@ -480,7 +512,7 @@ export default function DashboardPage() {
             /* Drill-down: Line chart for subcategory trends */
             <ResponsiveContainer width="100%" height={350}>
               <LineChart data={drillChartData}>
-                <CartesianGrid strokeDasharray="3 3" />
+                <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
                 <XAxis dataKey="month" />
                 <YAxis
                   tickFormatter={(v) =>
@@ -500,12 +532,12 @@ export default function DashboardPage() {
                           .map((p) => (
                             <div key={p.dataKey as string} className="flex justify-between gap-4">
                               <span style={{ color: p.color }}>{p.dataKey as string}</span>
-                              <span className="font-mono">{formatCurrency(Number(p.value))}</span>
+                              <span className="">{formatCurrency(Number(p.value))}</span>
                             </div>
                           ))}
                         <div className="flex justify-between gap-4 border-t mt-1 pt-1 font-bold">
                           <span>Total</span>
-                          <span className="font-mono">{formatCurrency(total)}</span>
+                          <span className="">{formatCurrency(total)}</span>
                         </div>
                       </div>
                     );
@@ -528,8 +560,8 @@ export default function DashboardPage() {
           ) : (
             /* Overview: Stacked bar chart */
             <ResponsiveContainer width="100%" height={350}>
-              <BarChart data={overviewChartData}>
-                <CartesianGrid strokeDasharray="3 3" />
+              <BarChart data={overviewChartData} margin={{ top: 20, right: 0, left: 0, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
                 <XAxis dataKey="month" />
                 <YAxis
                   tickFormatter={(v) => `$${(v / 1000).toFixed(0)}k`}
@@ -547,12 +579,12 @@ export default function DashboardPage() {
                           .map((p) => (
                             <div key={p.dataKey as string} className="flex justify-between gap-4">
                               <span style={{ color: p.color }}>{p.dataKey as string}</span>
-                              <span className="font-mono">{formatCurrency(Number(p.value))}</span>
+                              <span className="">{formatCurrency(Number(p.value))}</span>
                             </div>
                           ))}
                         <div className="flex justify-between gap-4 border-t mt-1 pt-1 font-bold">
                           <span>Total</span>
-                          <span className="font-mono">{formatCurrency(total)}</span>
+                          <span className="">{formatCurrency(total)}</span>
                         </div>
                       </div>
                     );
@@ -592,12 +624,67 @@ export default function DashboardPage() {
         </CardContent>
       </Card>
 
+      {/* Trend chart for checked master categories */}
+      {checkedCategories.size > 0 && (
+        <Card className="shadow-sm">
+          <CardHeader>
+            <CardTitle className="text-base font-semibold">Category Trends</CardTitle>
+            <p className="text-xs text-gray-400">
+              Comparing: {[...checkedCategories].join(", ")}
+            </p>
+          </CardHeader>
+          <CardContent>
+            <ResponsiveContainer width="100%" height={350}>
+              <LineChart data={trendChartData} margin={{ top: 10, right: 0, left: 0, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                <XAxis dataKey="month" />
+                <YAxis
+                  tickFormatter={(v) =>
+                    v >= 1000 ? `$${(v / 1000).toFixed(0)}k` : `$${v}`
+                  }
+                />
+                <Tooltip
+                  content={({ active, payload, label }) => {
+                    if (!active || !payload?.length) return null;
+                    return (
+                      <div className="bg-white border rounded shadow-lg p-3 text-sm">
+                        <p className="font-medium mb-1">{label}</p>
+                        {[...payload]
+                          .sort((a, b) => (Number(b.value) || 0) - (Number(a.value) || 0))
+                          .map((p) => (
+                            <div key={p.dataKey as string} className="flex justify-between gap-4">
+                              <span style={{ color: p.color }}>{p.dataKey as string}</span>
+                              <span className="">{formatCurrency(Number(p.value))}</span>
+                            </div>
+                          ))}
+                      </div>
+                    );
+                  }}
+                />
+                <Legend />
+                {[...checkedCategories].map((name) => (
+                  <Line
+                    key={name}
+                    type="monotone"
+                    dataKey={name}
+                    stroke={CHART_COLORS[name] || "#94a3b8"}
+                    strokeWidth={2}
+                    dot={{ r: 3 }}
+                    activeDot={{ r: 5 }}
+                  />
+                ))}
+              </LineChart>
+            </ResponsiveContainer>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Monthly Breakdown Table (Pivot) — expandable */}
-      <Card>
+      <Card className="shadow-sm">
         <CardHeader>
           <div className="flex items-center justify-between">
             <div>
-              <CardTitle>Monthly Breakdown</CardTitle>
+              <CardTitle className="text-base font-semibold">Monthly Breakdown</CardTitle>
               <p className="text-xs text-gray-400 mt-1">
                 Click a category to expand · Click a number to see transactions
               </p>
@@ -640,7 +727,7 @@ export default function DashboardPage() {
           <Table className="text-sm">
             <TableHeader>
               <TableRow>
-                <TableHead className="sticky left-0 bg-white min-w-[180px]">
+                <TableHead className="sticky left-0 z-10 bg-white min-w-[180px]">
                   Category
                 </TableHead>
                 {filteredMonths.map((month) => (
@@ -668,15 +755,27 @@ export default function DashboardPage() {
                 );
 
                 return (
-                  <>
+                  <Fragment key={mc.id}>
                     {/* Master category row */}
                     <TableRow
                       key={mc.id}
                       className="cursor-pointer hover:bg-gray-50"
                       onClick={() => toggleCategory(mc.name)}
                     >
-                      <TableCell className="sticky left-0 bg-inherit font-medium">
+                      <TableCell className="sticky left-0 z-10 bg-white font-medium">
                         <div className="flex items-center gap-2">
+                          {!isExpanded && (
+                            <input
+                              type="checkbox"
+                              checked={checkedCategories.has(mc.name)}
+                              onChange={(e) => {
+                                e.stopPropagation();
+                                toggleChecked(mc.name);
+                              }}
+                              onClick={(e) => e.stopPropagation()}
+                              className="h-3.5 w-3.5 rounded border-gray-300 accent-blue-600 cursor-pointer"
+                            />
+                          )}
                           {isExpanded ? (
                             <ChevronDown className="h-3.5 w-3.5 text-gray-400" />
                           ) : (
@@ -691,7 +790,7 @@ export default function DashboardPage() {
                         return (
                           <TableCell
                             key={month}
-                            className={`text-right font-mono whitespace-nowrap cursor-pointer hover:underline ${
+                            className={`text-right whitespace-nowrap cursor-pointer hover:underline ${
                               val >= 0 ? "text-green-600" : "text-red-600"
                             }`}
                             onClick={(e) => {
@@ -709,7 +808,7 @@ export default function DashboardPage() {
                         );
                       })}
                       <TableCell
-                        className={`text-right font-mono font-bold whitespace-nowrap ${
+                        className={`text-right font-bold whitespace-nowrap ${
                           mcTotal >= 0 ? "text-green-600" : "text-red-600"
                         }`}
                       >
@@ -731,7 +830,7 @@ export default function DashboardPage() {
                             key={spendKey}
                             className="bg-gray-50/50"
                           >
-                            <TableCell className="sticky left-0 bg-inherit pl-10 text-gray-500">
+                            <TableCell className="sticky left-0 z-10 bg-gray-50 pl-10 text-gray-500">
                               {spendName}
                             </TableCell>
                             {filteredMonths.map((month) => {
@@ -742,7 +841,7 @@ export default function DashboardPage() {
                               return (
                                 <TableCell
                                   key={month}
-                                  className={`text-right font-mono whitespace-nowrap ${
+                                  className={`text-right whitespace-nowrap ${
                                     val === 0
                                       ? "text-gray-300"
                                       : val >= 0
@@ -764,7 +863,7 @@ export default function DashboardPage() {
                               );
                             })}
                             <TableCell
-                              className={`text-right font-mono whitespace-nowrap ${
+                              className={`text-right whitespace-nowrap ${
                                 spendTotal >= 0
                                   ? "text-green-600"
                                   : "text-red-600"
@@ -775,7 +874,7 @@ export default function DashboardPage() {
                           </TableRow>
                         );
                       })}
-                  </>
+                  </Fragment>
                 );
               })}
               {(() => {
@@ -785,7 +884,7 @@ export default function DashboardPage() {
                 );
                 return (
                   <TableRow className="border-t-2">
-                    <TableCell className="sticky left-0 bg-white font-bold">
+                    <TableCell className="sticky left-0 z-10 bg-white font-bold">
                       Net Total
                     </TableCell>
                     {filteredMonths.map((month) => {
@@ -793,7 +892,7 @@ export default function DashboardPage() {
                       return (
                         <TableCell
                           key={month}
-                          className={`text-right font-mono font-bold whitespace-nowrap ${
+                          className={`text-right font-bold whitespace-nowrap ${
                             val >= 0 ? "text-green-600" : "text-red-600"
                           }`}
                         >
@@ -802,7 +901,7 @@ export default function DashboardPage() {
                       );
                     })}
                     <TableCell
-                      className={`text-right font-mono font-bold whitespace-nowrap ${
+                      className={`text-right font-bold whitespace-nowrap ${
                         filteredNet >= 0 ? "text-green-600" : "text-red-600"
                       }`}
                     >

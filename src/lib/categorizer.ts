@@ -60,16 +60,7 @@ export async function resolveSpendCategory(
   });
 
   if (existing) {
-    // If a master category override was specified, look it up
-    if (masterCategoryName) {
-      const mc = await db.query.masterCategories.findFirst({
-        where: eq(masterCategories.name, normalizeCategoryName(masterCategoryName)),
-      });
-      return {
-        spendCategoryId: existing.id,
-        masterCategoryId: mc?.id || existing.masterCategoryId,
-      };
-    }
+    // Always use the spend category's own master — the DB relationship is the source of truth
     return {
       spendCategoryId: existing.id,
       masterCategoryId: existing.masterCategoryId,

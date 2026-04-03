@@ -351,7 +351,7 @@ export default function UploadPage() {
   if (state === "idle" || state === "error") {
     return (
       <div className="space-y-6">
-        <h1 className="text-2xl font-bold">Upload Statement</h1>
+        <h1 className="text-xl font-semibold text-gray-900">Upload Statement</h1>
 
         <Card>
           <CardHeader>
@@ -532,7 +532,7 @@ export default function UploadPage() {
   if (state === "uploading") {
     return (
       <div className="space-y-6">
-        <h1 className="text-2xl font-bold">Upload Statement</h1>
+        <h1 className="text-xl font-semibold text-gray-900">Upload Statement</h1>
         <Card>
           <CardContent className="flex flex-col items-center py-12">
             <Loader2 className="h-12 w-12 animate-spin text-blue-500" />
@@ -556,7 +556,7 @@ export default function UploadPage() {
     return (
       <div className="space-y-4">
         <div className="flex items-center justify-between">
-          <h1 className="text-2xl font-bold">Review Transactions</h1>
+          <h1 className="text-xl font-semibold text-gray-900">Review Transactions</h1>
           <div className="flex items-center gap-3">
             <p className="text-sm text-gray-500">
               {activeTransactions.length} transactions
@@ -716,7 +716,7 @@ export default function UploadPage() {
                         </Badge>
                       </TableCell>
                       <TableCell
-                        className={`text-right font-mono text-sm ${
+                        className={`text-right text-sm ${
                           amt >= 0 ? "text-green-600" : "text-red-600"
                         }`}
                       >
@@ -725,7 +725,7 @@ export default function UploadPage() {
                           className="hover:underline cursor-pointer"
                           title="Click to flip sign (credit ↔ debit)"
                         >
-                          {formatCurrency(amt)}
+                          {formatCurrency(amt, 2)}
                         </button>
                       </TableCell>
                       <TableCell>
@@ -755,7 +755,7 @@ export default function UploadPage() {
     const confirmedCount = transactions.filter((tx) => !tx.deleted).length;
     return (
       <div className="space-y-6">
-        <h1 className="text-2xl font-bold">Upload Complete</h1>
+        <h1 className="text-xl font-semibold text-gray-900">Upload Complete</h1>
         <Card>
           <CardContent className="flex flex-col items-center py-12">
             <CheckCircle className="h-12 w-12 text-green-500" />

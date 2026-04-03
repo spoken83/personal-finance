@@ -116,8 +116,8 @@ export function AmortizeDialog({
                 year: "numeric",
               })}
               {" · "}
-              <span className={`font-mono font-medium ${totalAmt >= 0 ? "text-green-600" : "text-red-600"}`}>
-                {formatCurrency(totalAmt)}
+              <span className={`font-medium ${totalAmt >= 0 ? "text-green-600" : "text-red-600"}`}>
+                {formatCurrency(totalAmt, 2)}
               </span>
             </div>
           </div>
@@ -157,15 +157,15 @@ export function AmortizeDialog({
                 {preview.map((p, i) => (
                   <div key={i} className="flex justify-between text-sm">
                     <span className="text-gray-600">{p.label}</span>
-                    <span className={`font-mono ${p.amt >= 0 ? "text-green-600" : "text-red-600"}`}>
-                      {formatCurrency(p.amt)}
+                    <span className={`${p.amt >= 0 ? "text-green-600" : "text-red-600"}`}>
+                      {formatCurrency(p.amt, 2)}
                     </span>
                   </div>
                 ))}
                 <div className="flex justify-between text-sm font-medium border-t pt-1 mt-1">
                   <span>Total</span>
-                  <span className={`font-mono ${totalAmt >= 0 ? "text-green-600" : "text-red-600"}`}>
-                    {formatCurrency(totalAmt)}
+                  <span className={`${totalAmt >= 0 ? "text-green-600" : "text-red-600"}`}>
+                    {formatCurrency(totalAmt, 2)}
                   </span>
                 </div>
               </div>

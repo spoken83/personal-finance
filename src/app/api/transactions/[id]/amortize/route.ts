@@ -46,39 +46,36 @@ export async function POST(
 
   const [startYear, startMon] = startMonth.split("-").map(Number);
 
-  // Create child transactions + mark parent as amortized in a single transaction
-  const result = await db.transaction(async (tx) => {
-    // Mark parent as amortized
-    await tx
-      .update(transactions)
-      .set({ isAmortized: true })
-      .where(eq(transactions.id, txId));
+  // Mark parent as amortized
+  await db
+    .update(transactions)
+    .set({ isAmortized: true })
+    .where(eq(transactions.id, txId));
 
-    const children = [];
-    for (let i = 0; i < months; i++) {
-      const d = new Date(startYear, startMon - 1 + i, 15); // mid-month
-      const isLast = i === months - 1;
+  const children = [];
+  for (let i = 0; i < months; i++) {
+    const d = new Date(startYear, startMon - 1 + i, 15); // mid-month
+    const isLast = i === months - 1;
 
-      const [child] = await tx
-        .insert(transactions)
-        .values({
-          bankAccountId: parent.bankAccountId,
-          date: d,
-          description: `${parent.description} (${i + 1}/${months})`,
-          accountingAmt: String(isLast ? lastAmt : splitAmt),
-          amountFcy: totalFcy !== null ? String(isLast ? lastFcy : splitFcy) : null,
-          fcyCurrency: parent.fcyCurrency,
-          spendCategoryId: parent.spendCategoryId,
-          masterCategoryId: parent.masterCategoryId,
-          isConfirmed: true,
-          parentTransactionId: txId,
-        })
-        .returning();
-      children.push(child);
-    }
+    const [child] = await db
+      .insert(transactions)
+      .values({
+        bankAccountId: parent.bankAccountId,
+        date: d,
+        description: `${parent.description} (${i + 1}/${months})`,
+        accountingAmt: String(isLast ? lastAmt : splitAmt),
+        amountFcy: totalFcy !== null ? String(isLast ? lastFcy : splitFcy) : null,
+        fcyCurrency: parent.fcyCurrency,
+        spendCategoryId: parent.spendCategoryId,
+        masterCategoryId: parent.masterCategoryId,
+        isConfirmed: true,
+        parentTransactionId: txId,
+      })
+      .returning();
+    children.push(child);
+  }
 
-    return children;
-  });
+  const result = children;
 
   return NextResponse.json({ parent: txId, children: result });
 }
@@ -99,18 +96,16 @@ export async function DELETE(
     return NextResponse.json({ error: "Transaction is not amortized" }, { status: 400 });
   }
 
-  await db.transaction(async (tx) => {
-    // Delete all children
-    await tx
-      .delete(transactions)
-      .where(eq(transactions.parentTransactionId, txId));
+  // Delete all children
+  await db
+    .delete(transactions)
+    .where(eq(transactions.parentTransactionId, txId));
 
-    // Un-amortize the parent
-    await tx
-      .update(transactions)
-      .set({ isAmortized: false })
-      .where(eq(transactions.id, txId));
-  });
+  // Un-amortize the parent
+  await db
+    .update(transactions)
+    .set({ isAmortized: false })
+    .where(eq(transactions.id, txId));
 
   return NextResponse.json({ success: true });
 }

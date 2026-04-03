@@ -194,7 +194,10 @@ export default function InvestmentsPage() {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold">Portfolio & Balances</h1>
+        <div>
+          <h1 className="text-xl font-semibold text-gray-900">Portfolio & Balances</h1>
+          <p className="text-sm text-gray-400">Track bank and investment account balances</p>
+        </div>
         <div className="flex items-center gap-3">
           <Label>Month:</Label>
           <Input
@@ -424,13 +427,13 @@ export default function InvestmentsPage() {
                               year: "numeric",
                             })}
                           </TableCell>
-                          <TableCell className="text-right font-mono">
+                          <TableCell className="text-right">
                             {bt > 0 ? formatCurrency(bt) : "-"}
                           </TableCell>
-                          <TableCell className="text-right font-mono">
+                          <TableCell className="text-right">
                             {it > 0 ? formatCurrency(it) : "-"}
                           </TableCell>
-                          <TableCell className="text-right font-mono font-bold">
+                          <TableCell className="text-right font-bold">
                             {formatCurrency(bt + it)}
                           </TableCell>
                         </TableRow>
