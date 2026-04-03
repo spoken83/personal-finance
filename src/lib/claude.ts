@@ -1,8 +1,12 @@
 import OpenAI from "openai";
 
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-});
+let _openai: OpenAI | null = null;
+function getOpenAI() {
+  if (!_openai) {
+    _openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+  }
+  return _openai;
+}
 
 export interface ExtractedTransaction {
   date: string;
@@ -64,7 +68,7 @@ export async function extractTransactionsFromText(
       `Do NOT use any other year.`
     : "";
 
-  const response = await openai.chat.completions.create({
+  const response = await getOpenAI().chat.completions.create({
     model: "gpt-4.1",
     temperature: 0,
     max_tokens: 16384,
@@ -159,7 +163,7 @@ export async function categorizeTransactions(
           .join("\n")
       : "  (No custom rules yet)";
 
-  const response = await openai.chat.completions.create({
+  const response = await getOpenAI().chat.completions.create({
     model: "gpt-4.1",
     temperature: 0,
     max_tokens: 16384,
