@@ -40,7 +40,7 @@ function CurrencyInput({
   const display = focused
     ? value
     : hasNum
-      ? `$${num.toLocaleString("en-SG", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+      ? `$${num.toLocaleString("en-SG", { maximumFractionDigits: 0 })}`
       : "";
 
   return (
@@ -383,7 +383,7 @@ export default function InvestmentsPage() {
                             onChange={(v) =>
                               setBankValues({ ...bankValues, [ba.id]: v })
                             }
-                            placeholder="$0.00"
+                            placeholder="$0"
                           />
                         </TableCell>
                         <TableCell>
@@ -463,7 +463,7 @@ export default function InvestmentsPage() {
                                 [acc.id]: v,
                               })
                             }
-                            placeholder="$0.00"
+                            placeholder="$0"
                           />
                         </TableCell>
                         <TableCell>
