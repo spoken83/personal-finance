@@ -24,6 +24,43 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { formatCurrency } from "@/lib/format";
 import { TrendingUp, DollarSign, Save } from "lucide-react";
 
+function CurrencyInput({
+  value,
+  onChange,
+  placeholder,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  placeholder?: string;
+}) {
+  const [focused, setFocused] = useState(false);
+  const num = parseFloat(value);
+  const hasNum = value !== "" && !isNaN(num);
+
+  const display = focused
+    ? value
+    : hasNum
+      ? `$${num.toLocaleString("en-SG", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+      : "";
+
+  return (
+    <Input
+      type="text"
+      inputMode="decimal"
+      value={display}
+      placeholder={placeholder}
+      onFocus={() => setFocused(true)}
+      onBlur={() => setFocused(false)}
+      onChange={(e) => {
+        // Keep digits, single decimal point, optional leading minus
+        const raw = e.target.value.replace(/[$,\s]/g, "");
+        const cleaned = raw.replace(/[^\d.\-]/g, "");
+        onChange(cleaned);
+      }}
+    />
+  );
+}
+
 interface InvestmentAccount {
   id: number;
   name: string;
@@ -341,14 +378,12 @@ export default function InvestmentsPage() {
                           )}
                         </TableCell>
                         <TableCell>
-                          <Input
-                            type="number"
-                            step="0.01"
+                          <CurrencyInput
                             value={bankValues[ba.id] || ""}
-                            onChange={(e) =>
-                              setBankValues({ ...bankValues, [ba.id]: e.target.value })
+                            onChange={(v) =>
+                              setBankValues({ ...bankValues, [ba.id]: v })
                             }
-                            placeholder="0.00"
+                            placeholder="$0.00"
                           />
                         </TableCell>
                         <TableCell>
@@ -420,17 +455,15 @@ export default function InvestmentsPage() {
                           )}
                         </TableCell>
                         <TableCell>
-                          <Input
-                            type="number"
-                            step="0.01"
+                          <CurrencyInput
                             value={investmentValues[acc.id] || ""}
-                            onChange={(e) =>
+                            onChange={(v) =>
                               setInvestmentValues({
                                 ...investmentValues,
-                                [acc.id]: e.target.value,
+                                [acc.id]: v,
                               })
                             }
-                            placeholder="0.00"
+                            placeholder="$0.00"
                           />
                         </TableCell>
                         <TableCell>
