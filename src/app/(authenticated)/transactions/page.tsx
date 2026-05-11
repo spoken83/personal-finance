@@ -21,10 +21,11 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { formatCurrency, formatDate } from "@/lib/format";
-import { ChevronLeft, ChevronRight, Search, X, Scissors, Undo2, Trash2 } from "lucide-react";
+import { ChevronLeft, ChevronRight, Search, X, Scissors, Undo2, Trash2, CalendarClock } from "lucide-react";
 import { InlineCategoryEditor, RulePrompt } from "@/components/transactions/category-editor";
 import { SearchableCategoryPicker } from "@/components/transactions/category-picker";
 import { AmortizeDialog } from "@/components/transactions/amortize-dialog";
+import { ShiftDialog } from "@/components/transactions/shift-dialog";
 
 interface Transaction {
   id: number;
@@ -102,6 +103,7 @@ export default function TransactionsPage() {
   const [bulkUpdating, setBulkUpdating] = useState(false);
   const [bulkDeleting, setBulkDeleting] = useState(false);
   const [amortizeTx, setAmortizeTx] = useState<Transaction | null>(null);
+  const [shiftTx, setShiftTx] = useState<Transaction | null>(null);
 
   const availableMonths = getAvailableMonths();
 
@@ -676,18 +678,27 @@ export default function TransactionsPage() {
                             <button
                               onClick={() => undoAmortization(tx.parentTransactionId!)}
                               className="p-0.5 rounded hover:bg-gray-100 text-gray-400 hover:text-orange-600"
-                              title="Undo split (restore original transaction)"
+                              title="Undo split / shift (restore original transaction)"
                             >
                               <Undo2 className="h-3.5 w-3.5" />
                             </button>
                           ) : (
-                            <button
-                              onClick={() => setAmortizeTx(tx)}
-                              className="p-0.5 rounded hover:bg-gray-100 text-gray-400 hover:text-blue-600"
-                              title="Split / amortize across months"
-                            >
-                              <Scissors className="h-3.5 w-3.5" />
-                            </button>
+                            <>
+                              <button
+                                onClick={() => setShiftTx(tx)}
+                                className="p-0.5 rounded hover:bg-gray-100 text-gray-400 hover:text-purple-600"
+                                title="Shift to another month (e.g. paid in Apr, count in May)"
+                              >
+                                <CalendarClock className="h-3.5 w-3.5" />
+                              </button>
+                              <button
+                                onClick={() => setAmortizeTx(tx)}
+                                className="p-0.5 rounded hover:bg-gray-100 text-gray-400 hover:text-blue-600"
+                                title="Split / amortize across months"
+                              >
+                                <Scissors className="h-3.5 w-3.5" />
+                              </button>
+                            </>
                           )}
                         </div>
                       </TableCell>
@@ -746,6 +757,14 @@ export default function TransactionsPage() {
         onOpenChange={(open) => { if (!open) setAmortizeTx(null); }}
         transaction={amortizeTx}
         onAmortized={fetchTransactions}
+      />
+
+      {/* Shift dialog */}
+      <ShiftDialog
+        open={!!shiftTx}
+        onOpenChange={(open) => { if (!open) setShiftTx(null); }}
+        transaction={shiftTx}
+        onShifted={fetchTransactions}
       />
     </div>
   );
