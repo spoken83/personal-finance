@@ -753,6 +753,10 @@ export default function DashboardPage() {
                   (sum, m) => sum + (data.monthlyBreakdown[m]?.[mc.name] || 0),
                   0
                 );
+                const mcHasActivity = filteredMonths.some(
+                  (m) => (data.monthlyBreakdown[m]?.[mc.name] || 0) !== 0
+                );
+                if (!mcHasActivity) return null;
 
                 return (
                   <Fragment key={mc.id}>
@@ -825,6 +829,11 @@ export default function DashboardPage() {
                             sum + (data.monthlySpendBreakdown[m]?.[spendKey] || 0),
                           0
                         );
+                        const spendHasActivity = filteredMonths.some(
+                          (m) =>
+                            (data.monthlySpendBreakdown[m]?.[spendKey] || 0) !== 0
+                        );
+                        if (!spendHasActivity) return null;
                         return (
                           <TableRow
                             key={spendKey}
