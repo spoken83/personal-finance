@@ -24,6 +24,25 @@ export async function PATCH(request: NextRequest) {
   return NextResponse.json({ updated: result.rowCount });
 }
 
+export async function DELETE(request: NextRequest) {
+  const { ids } = await request.json();
+
+  if (!Array.isArray(ids) || ids.length === 0) {
+    return NextResponse.json({ error: "ids array is required" }, { status: 400 });
+  }
+
+  const numericIds = ids.map((id) => Number(id)).filter((id) => Number.isFinite(id));
+  if (numericIds.length === 0) {
+    return NextResponse.json({ error: "no valid ids provided" }, { status: 400 });
+  }
+
+  const result = await db
+    .delete(transactions)
+    .where(inArray(transactions.id, numericIds));
+
+  return NextResponse.json({ deleted: result.rowCount });
+}
+
 export async function GET(request: NextRequest) {
   const searchParams = request.nextUrl.searchParams;
   const page = parseInt(searchParams.get("page") || "1");

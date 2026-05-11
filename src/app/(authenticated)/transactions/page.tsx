@@ -21,7 +21,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { formatCurrency, formatDate } from "@/lib/format";
-import { ChevronLeft, ChevronRight, Search, X, Scissors, Undo2 } from "lucide-react";
+import { ChevronLeft, ChevronRight, Search, X, Scissors, Undo2, Trash2 } from "lucide-react";
 import { InlineCategoryEditor, RulePrompt } from "@/components/transactions/category-editor";
 import { SearchableCategoryPicker } from "@/components/transactions/category-picker";
 import { AmortizeDialog } from "@/components/transactions/amortize-dialog";
@@ -100,6 +100,7 @@ export default function TransactionsPage() {
 
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [bulkUpdating, setBulkUpdating] = useState(false);
+  const [bulkDeleting, setBulkDeleting] = useState(false);
   const [amortizeTx, setAmortizeTx] = useState<Transaction | null>(null);
 
   const availableMonths = getAvailableMonths();
@@ -237,6 +238,38 @@ export default function TransactionsPage() {
     fetchTransactions();
   }
 
+  async function convertFcyToSgd(txId: number) {
+    const tx = transactions.find((t) => t.id === txId);
+    if (!tx || !tx.amountFcy) return;
+
+    const fcy = parseFloat(tx.amountFcy);
+    const currentSgd = parseFloat(tx.accountingAmt);
+    const newAmt = Math.sign(currentSgd || fcy || 1) * Math.abs(fcy);
+
+    const confirmed = window.confirm(
+      `Treat this transaction as ${formatCurrency(newAmt, 2)} SGD (not ${tx.fcyCurrency} ${Math.abs(fcy).toFixed(2)})? The FCY conversion will be removed.`
+    );
+    if (!confirmed) return;
+
+    setTransactions((prev) =>
+      prev.map((t) =>
+        t.id === txId
+          ? { ...t, accountingAmt: newAmt.toString(), amountFcy: null, fcyCurrency: null }
+          : t
+      )
+    );
+
+    await fetch(`/api/transactions/${txId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        accountingAmt: newAmt,
+        amountFcy: null,
+        fcyCurrency: null,
+      }),
+    });
+  }
+
   function toggleSelect(id: number) {
     setSelectedIds((prev) => {
       const next = new Set(prev);
@@ -291,6 +324,29 @@ export default function TransactionsPage() {
       }
     } finally {
       setBulkUpdating(false);
+    }
+  }
+
+  async function handleBulkDelete() {
+    if (selectedIds.size === 0) return;
+    const confirmed = window.confirm(
+      `Delete ${selectedIds.size} transaction${selectedIds.size === 1 ? "" : "s"}? This cannot be undone.`
+    );
+    if (!confirmed) return;
+
+    setBulkDeleting(true);
+    try {
+      const res = await fetch("/api/transactions", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ids: [...selectedIds] }),
+      });
+      if (res.ok) {
+        setSelectedIds(new Set());
+        fetchTransactions();
+      }
+    } finally {
+      setBulkDeleting(false);
     }
   }
 
@@ -486,14 +542,24 @@ export default function TransactionsPage() {
             categoryMap={categories}
             onSelect={handleBulkCategoryChange}
             onCategoryCreated={handleCategoryCreated}
-            disabled={bulkUpdating}
+            disabled={bulkUpdating || bulkDeleting}
             className="h-8 text-xs bg-white"
           />
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleBulkDelete}
+            disabled={bulkUpdating || bulkDeleting}
+            className="ml-auto h-8 border-red-200 bg-white text-red-600 hover:bg-red-50 hover:text-red-700"
+          >
+            <Trash2 className="mr-1 h-3.5 w-3.5" />
+            {bulkDeleting ? "Deleting..." : "Delete"}
+          </Button>
           <Button
             variant="ghost"
             size="sm"
             onClick={() => setSelectedIds(new Set())}
-            className="ml-auto text-blue-600"
+            className="text-blue-600"
           >
             Clear selection
           </Button>
@@ -557,9 +623,13 @@ export default function TransactionsPage() {
                       <TableCell>
                         <div className="text-sm font-medium">{tx.description}</div>
                         {tx.amountFcy && tx.fcyCurrency && (
-                          <div className="text-xs text-gray-400">
-                            {tx.fcyCurrency} {parseFloat(tx.amountFcy).toFixed(2)}
-                          </div>
+                          <button
+                            onClick={() => convertFcyToSgd(tx.id)}
+                            className="text-xs text-gray-400 hover:text-blue-600 hover:underline cursor-pointer"
+                            title="Click to treat this as SGD (remove FCY conversion)"
+                          >
+                            {tx.fcyCurrency} {Math.abs(parseFloat(tx.amountFcy)).toFixed(2)} → SGD
+                          </button>
                         )}
                       </TableCell>
                       <TableCell className="text-sm text-gray-600">

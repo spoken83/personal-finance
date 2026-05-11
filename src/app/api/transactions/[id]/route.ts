@@ -17,6 +17,7 @@ export async function PATCH(
   if (body.description !== undefined) data.description = body.description;
   if (body.accountingAmt !== undefined) data.accountingAmt = body.accountingAmt;
   if (body.amountFcy !== undefined) data.amountFcy = body.amountFcy;
+  if (body.fcyCurrency !== undefined) data.fcyCurrency = body.fcyCurrency;
 
   await db
     .update(transactions)
