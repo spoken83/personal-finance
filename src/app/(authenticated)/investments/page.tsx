@@ -67,7 +67,7 @@ export default function InvestmentsPage() {
   const fetchData = useCallback(async () => {
     const [invRes, balRes] = await Promise.all([
       fetch("/api/investments"),
-      fetch(`/api/balances?month=${selectedMonth}`),
+      fetch(`/api/balances`),
     ]);
     const invData = await invRes.json();
     const balData = await balRes.json();
@@ -92,7 +92,9 @@ export default function InvestmentsPage() {
 
     const bankVals: Record<number, string> = {};
     for (const bal of balData.balances) {
-      bankVals[bal.bankAccount.id] = bal.actualBalance;
+      if (bal.month.slice(0, 7) === selectedMonth) {
+        bankVals[bal.bankAccount.id] = bal.actualBalance;
+      }
     }
     setBankValues(bankVals);
   }, [selectedMonth]);
@@ -191,6 +193,43 @@ export default function InvestmentsPage() {
   );
   const grandTotal = bankTotal + investmentTotal;
 
+  // Find most recent balance before the selected month
+  function previousBankBalance(bankAccountId: number): { amount: number; month: string } | null {
+    const prior = bankBalances
+      .filter(
+        (b) =>
+          b.bankAccount.id === bankAccountId &&
+          b.month.slice(0, 7) < selectedMonth
+      )
+      .sort((a, b) => (a.month < b.month ? 1 : -1));
+    if (prior.length === 0) return null;
+    return { amount: parseFloat(prior[0].actualBalance), month: prior[0].month.slice(0, 7) };
+  }
+
+  function previousInvestmentSnapshot(account: InvestmentAccount): { amount: number; month: string } | null {
+    const prior = account.snapshots
+      .filter((s) => s.month.slice(0, 7) < selectedMonth)
+      .sort((a, b) => (a.month < b.month ? 1 : -1));
+    if (prior.length === 0) return null;
+    return { amount: parseFloat(prior[0].balance), month: prior[0].month.slice(0, 7) };
+  }
+
+  function formatMonthShort(m: string): string {
+    return new Date(m + "-01").toLocaleDateString("en-SG", {
+      month: "short",
+      year: "2-digit",
+    });
+  }
+
+  const previousBankTotal = bankAccounts.reduce(
+    (sum, ba) => sum + (previousBankBalance(ba.id)?.amount ?? 0),
+    0
+  );
+  const previousInvestmentTotal = investmentAccounts.reduce(
+    (sum, acc) => sum + (previousInvestmentSnapshot(acc)?.amount ?? 0),
+    0
+  );
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -277,40 +316,59 @@ export default function InvestmentsPage() {
                   <TableRow>
                     <TableHead>Bank</TableHead>
                     <TableHead>Account</TableHead>
+                    <TableHead className="w-[160px] text-right">Previous balance</TableHead>
                     <TableHead className="w-[200px]">Balance (SGD)</TableHead>
                     <TableHead className="w-[80px]"></TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {bankAccounts.map((ba) => (
-                    <TableRow key={ba.id}>
-                      <TableCell className="font-medium">{ba.source}</TableCell>
-                      <TableCell>{ba.accountName}</TableCell>
-                      <TableCell>
-                        <Input
-                          type="number"
-                          step="0.01"
-                          value={bankValues[ba.id] || ""}
-                          onChange={(e) =>
-                            setBankValues({ ...bankValues, [ba.id]: e.target.value })
-                          }
-                          placeholder="0.00"
-                        />
-                      </TableCell>
-                      <TableCell>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => saveBankBalance(ba.id)}
-                          disabled={saving}
-                        >
-                          Save
-                        </Button>
-                      </TableCell>
-                    </TableRow>
-                  ))}
+                  {bankAccounts.map((ba) => {
+                    const prev = previousBankBalance(ba.id);
+                    return (
+                      <TableRow key={ba.id}>
+                        <TableCell className="font-medium">{ba.source}</TableCell>
+                        <TableCell>{ba.accountName}</TableCell>
+                        <TableCell className="text-right text-gray-600">
+                          {prev ? (
+                            <div>
+                              <div>{formatCurrency(prev.amount)}</div>
+                              <div className="text-xs text-gray-400">
+                                {formatMonthShort(prev.month)}
+                              </div>
+                            </div>
+                          ) : (
+                            <span className="text-gray-300">—</span>
+                          )}
+                        </TableCell>
+                        <TableCell>
+                          <Input
+                            type="number"
+                            step="0.01"
+                            value={bankValues[ba.id] || ""}
+                            onChange={(e) =>
+                              setBankValues({ ...bankValues, [ba.id]: e.target.value })
+                            }
+                            placeholder="0.00"
+                          />
+                        </TableCell>
+                        <TableCell>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => saveBankBalance(ba.id)}
+                            disabled={saving}
+                          >
+                            Save
+                          </Button>
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
                   <TableRow className="border-t-2 font-bold">
                     <TableCell colSpan={2}>Total</TableCell>
+                    <TableCell className="text-right text-gray-600">
+                      {previousBankTotal > 0 ? formatCurrency(previousBankTotal) : "—"}
+                    </TableCell>
                     <TableCell>{formatCurrency(bankTotal)}</TableCell>
                     <TableCell></TableCell>
                   </TableRow>
@@ -334,46 +392,65 @@ export default function InvestmentsPage() {
                     <TableHead>Provider</TableHead>
                     <TableHead>Account</TableHead>
                     <TableHead>Type</TableHead>
+                    <TableHead className="w-[160px] text-right">Previous balance</TableHead>
                     <TableHead className="w-[200px]">Balance (SGD)</TableHead>
                     <TableHead className="w-[80px]"></TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {investmentAccounts.map((acc) => (
-                    <TableRow key={acc.id}>
-                      <TableCell className="font-medium">{acc.provider}</TableCell>
-                      <TableCell>{acc.name}</TableCell>
-                      <TableCell className="text-sm text-gray-500">
-                        {acc.accountType || "-"}
-                      </TableCell>
-                      <TableCell>
-                        <Input
-                          type="number"
-                          step="0.01"
-                          value={investmentValues[acc.id] || ""}
-                          onChange={(e) =>
-                            setInvestmentValues({
-                              ...investmentValues,
-                              [acc.id]: e.target.value,
-                            })
-                          }
-                          placeholder="0.00"
-                        />
-                      </TableCell>
-                      <TableCell>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => saveInvestmentSnapshot(acc.id)}
-                          disabled={saving}
-                        >
-                          Save
-                        </Button>
-                      </TableCell>
-                    </TableRow>
-                  ))}
+                  {investmentAccounts.map((acc) => {
+                    const prev = previousInvestmentSnapshot(acc);
+                    return (
+                      <TableRow key={acc.id}>
+                        <TableCell className="font-medium">{acc.provider}</TableCell>
+                        <TableCell>{acc.name}</TableCell>
+                        <TableCell className="text-sm text-gray-500">
+                          {acc.accountType || "-"}
+                        </TableCell>
+                        <TableCell className="text-right text-gray-600">
+                          {prev ? (
+                            <div>
+                              <div>{formatCurrency(prev.amount)}</div>
+                              <div className="text-xs text-gray-400">
+                                {formatMonthShort(prev.month)}
+                              </div>
+                            </div>
+                          ) : (
+                            <span className="text-gray-300">—</span>
+                          )}
+                        </TableCell>
+                        <TableCell>
+                          <Input
+                            type="number"
+                            step="0.01"
+                            value={investmentValues[acc.id] || ""}
+                            onChange={(e) =>
+                              setInvestmentValues({
+                                ...investmentValues,
+                                [acc.id]: e.target.value,
+                              })
+                            }
+                            placeholder="0.00"
+                          />
+                        </TableCell>
+                        <TableCell>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => saveInvestmentSnapshot(acc.id)}
+                            disabled={saving}
+                          >
+                            Save
+                          </Button>
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
                   <TableRow className="border-t-2 font-bold">
                     <TableCell colSpan={3}>Total</TableCell>
+                    <TableCell className="text-right text-gray-600">
+                      {previousInvestmentTotal > 0 ? formatCurrency(previousInvestmentTotal) : "—"}
+                    </TableCell>
                     <TableCell>{formatCurrency(investmentTotal)}</TableCell>
                     <TableCell></TableCell>
                   </TableRow>
